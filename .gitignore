@@ -110,6 +110,8 @@
 **/.env.*.local
 *.pem
 *.key
+**/web/settings.json
+**/goose/
 
 # Temporary files
 *.tmp

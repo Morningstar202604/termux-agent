@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # 在 PC 上构建安卓 APK（Termux Agent 前端）
 # 依赖：自动安装 JDK + Android SDK + Flutter
+# 用法：
+#   bash build_apk.sh          # 构建 debug APK（可直接 adb install）
+#   bash build_apk.sh release  # 构建 release APK（自动签名，debug keystore 兜底）
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+MODE="${1:-debug}"
 
 # 1. 安装 Java (JDK 17)
 if ! command -v java >/dev/null 2>&1; then
@@ -30,7 +34,6 @@ export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
 sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
-cd /workspace/app/android
 # 3. 安装 Flutter
 if ! command -v flutter >/dev/null 2>&1; then
   echo "==> 安装 Flutter SDK..."
@@ -40,8 +43,7 @@ fi
 flutter config --no-analytics >/dev/null 2>&1 || true
 flutter precache --android >/dev/null 2>&1 || true
 
-# 4. 构建 APK（debug，可直接 adb 安装；release 需要签名 keystore）
-# 先写入低内存 gradle 参数，避免在内存受限的 CI/容器上 OOM
+# 4. 低内存 gradle 参数
 cat > /workspace/app/android/gradle.properties <<'EOF'
 org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
 org.gradle.parallel=false
@@ -53,12 +55,48 @@ EOF
 
 cd /workspace/app
 flutter pub get
-flutter build apk --debug
 
-echo ""
-echo "APK 已生成: $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
-echo "安装到手机:  adb install $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
-echo "或把 apk 拷到手机直接安装。"
+if [ "$MODE" = "release" ]; then
+  # 生成/复用 debug keystore 作为兜底签名（真正的分发 keystore 请用户自备）
+  KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
+  if [ ! -f "$KEYSTORE" ]; then
+    echo "==> 生成 debug keystore..."
+    keytool -genkeypair -v -keystore "$KEYSTORE" -storepass android -keypass android \
+      -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
+  fi
+  # 临时把 release signingConfig 指向 debug keystore（仅本地 CI 用）
+  sed -i 's/signingConfigs.getByName("debug")/signingConfigs.create("releaseLocal")/' app/android/app/build.gradle.kts || true
+  cat >> app/android/app/build.gradle.kts <<EOF
+
+android {
+  signingConfigs {
+    create("releaseLocal") {
+      storeFile = file("$KEYSTORE")
+      storePassword = "android"
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
+    }
+  }
+  buildTypes {
+    release {
+      signingConfig = signingConfigs.getByName("releaseLocal")
+    }
+  }
+}
+EOF
+  flutter build apk --release
+  echo ""
+  echo "release APK 已生成: $(pwd)/build/app/outputs/flutter-apk/app-release.apk"
+  echo "安装到手机:  adb install $(pwd)/build/app/outputs/flutter-apk/app-release.apk"
+  echo "注意：此 APK 用 debug keystore 签名，正式分发前请换自己的 keystore。"
+else
+  flutter build apk --debug
+  echo ""
+  echo "APK 已生成: $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
+  echo "安装到手机:  adb install $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
+fi
+
 echo ""
 echo "手机侧：先跑 termux/install.sh all 装好 goose + provider，"
 echo "启动后在 Termux 里执行:"

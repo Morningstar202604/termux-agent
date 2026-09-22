@@ -199,7 +199,7 @@ export function ChatProvider({
       },
       onError: (m) => {
         // 忙碌/业务错误不改连接状态；只有真连接故障才标 error
-        const busy = /上一轮|进行中|409|未就绪/.test(m);
+        const busy = /上一轮|进行中|409|未就绪|已停止/.test(m);
         if (!busy) {
           setStatus("error");
           statusRef.current = "error";

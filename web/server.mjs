@@ -396,8 +396,30 @@ function sendPrompt(message) {
   return pid;
 }
 
-function scheduleReconnect(e) {
-  if (e) console.error("[server] connect error:", e.message ?? e);
+// ACP 中止：发 cancelled 通知（session/update, sessionUpdate="cancelled"）
+function cancelPrompt() {
+  if (!sessionId || !ws || ws.readyState !== 1) return false;
+  try {
+    ws.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId, update: { sessionUpdate: "cancelled" } },
+      }),
+    );
+    if (activePromptId !== null) {
+      clearTimeout(promptWatchdog);
+      activePromptId = null;
+      lastPrompt = null;
+      finishState("error", { error: "已停止" });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scheduleReconnect(e) {  if (e) console.error("[server] connect error:", e.message ?? e);
   console.log(`[server] goose retry in ${retryMs}ms`);
   setTimeout(connectGoose, retryMs);
   retryMs = Math.min(retryMs * 2, 15000);
@@ -591,8 +613,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (url.startsWith("/api/stop")) {
+    const ok = cancelPrompt();
+    json(res, ok ? 200 : 409, ok ? { ok: true } : { error: "没有正在运行的回复" });
+    return;
+  }
+
   if (url.startsWith("/api/state")) {
-    json(res, 200, { ...state });
+    const body = JSON.stringify({ ...state });
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Length": Buffer.byteLength(body),
+    });
+    res.end(body);
     return;
   }
 

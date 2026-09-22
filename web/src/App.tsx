@@ -7,7 +7,7 @@ import {
 } from "@assistant-ui/react";
 import { ChatProvider, useMeta, useConn } from "./ChatProvider";
 import { SettingsPanel } from "./SettingsPanel";
-import { type ToolPart } from "./bridge-client";
+import { BridgeClient, type ToolPart } from "./bridge-client";
 
 const SUGGESTIONS = [
   { icon: "🖥️", label: "查看系统状态" },
@@ -391,6 +391,15 @@ function Composer() {
   const threadState = aui.optional.thread ? aui.thread().getState() : undefined;
   const running = threadState?.isRunning ?? false;
   const notReady = status === "error";
+  const client = new BridgeClient({
+    onStatus: () => {},
+    onSnapshot: () => {},
+    onRunComplete: () => {},
+    onError: () => {},
+  });
+  const handleCancel = () => {
+    void client.stop();
+  };
   return (
     <div
       className="border-t border-white/[0.06] bg-[#0a0c10]/95 px-3 pt-3 backdrop-blur"
@@ -410,7 +419,10 @@ function Composer() {
             className="max-h-40 min-h-[36px] flex-1 resize-none px-2 py-2 text-[14px] leading-relaxed outline-none placeholder:text-zinc-500"
           />
           {running && (
-            <ComposerPrimitive.Cancel className="mb-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-red-500/40 bg-red-500/15 text-red-400 transition active:scale-95">
+            <ComposerPrimitive.Cancel
+              className="mb-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-red-500/40 bg-red-500/15 text-red-400 transition active:scale-95"
+              onClick={handleCancel}
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>

@@ -90,6 +90,19 @@ export class BridgeClient {
     }
   }
 
+  /** 停止正在运行的回复 */
+  async stop(): Promise<boolean> {
+    try {
+      const r = await fetch(`${this.base}/api/stop`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async sendPrompt(text: string): Promise<void> {
     this.stopPolling();
     this.ev.onSnapshot([]);

@@ -57,26 +57,25 @@ source ~/.agent/termux.env
 
 最简路线：浏览器直接访问，不打包 APK，不装 Flutter。
 
+`web/server.mjs` 是**唯一入口**：它托管前端 `dist/`、起 `/api/*` 接口，并**自管理 goose 子进程**（按 `web/settings.json` + `LLM_API_KEY` 自动拉起 / 看门狗保活），无需手动挂 `goose serve`。
+
 ```bash
-# 1. 手机侧装好 goose + provider（一次性）
-cd termux && bash install.sh all
-# 启动 ACP 服务
-source ~/.agent/termux.env
-~/.local/bin/goose serve --dangerously-unauthenticated --host 0.0.0.0 --port 3284
+# 1. 手机侧装好 goose 二进制 + provider（一次性，见「开发（PC 端）」或 Termux 安装）
+#    goose/ 源码（约 3GB）已被 gitignore 排除，不在仓库里；
+#    克隆后需自备 goose（termux/install.sh all 拉取或本地 cargo 编译）。
 
-# 2. 手机/PC 上跑 Web 前端
-cd web
-npm install
-# 开发（Vite 代理 /acp 到本机 goose serve）
-npx vite --host 0.0.0.0
-# 或构建静态包
-npm run build   # 产物 dist/，需 goose serve 加 --allowed-origin 放行浏览器跨域
+# 2. 一键启动（自动读 .env / settings.json、装依赖、构建前端、拉起 goose + node）
+bash web/start.sh            # 默认端口 5173
+# bash web/start.sh 8080    # 自定义端口
 
-# 3. 浏览器打开 http://<机器IP>:5173，默认连 ws://127.0.0.1:3284/acp
-#    手机访问时把连接地址改成 ws://手机IP:3284/acp（在页面「连接」面板改）
+# 3. 浏览器打开 http://<机器IP>:5173
+#    页面「⚙ 设置」里配 LLM API key / 模型 / 工具权限模式，保存后 goose 自动重启生效
+#    聊天 / 停止 / 清空历史 / 工具调用卡片均在此页面完成
 ```
 
 前端技术栈：Vite + React + TypeScript + Tailwind，聊天 UI 用 `@assistant-ui/react`（OpenAI 官方组件库，不手画），通过 `useExternalStoreRuntime` 把 ACP 的 `session/update` 流式通知接进外部 store。
+
+> 手动方式（不推荐，server.mjs 已自管 goose）：`source termux/termux.env && ~/.local/bin/goose serve ...` 再 `cd web && npm i && npx vite`。
 
 ### 老路线：Flutter APK（需 8GB+ 内存机器出包）
 

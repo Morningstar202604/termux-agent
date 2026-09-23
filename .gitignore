@@ -111,6 +111,7 @@
 *.pem
 *.key
 **/web/settings.json
+**/web/history.jsonl
 **/goose/
 
 # Temporary files

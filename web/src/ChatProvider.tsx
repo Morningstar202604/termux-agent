@@ -66,8 +66,51 @@ export function ChatProvider({
   const pendingRef = useRef<string | null>(null);
   const statusRef = useRef<BridgeStatus>("idle");
   const isRunningRef = useRef(false);
+  const historyLoadedRef = useRef(false);
   statusRef.current = status;
   isRunningRef.current = isRunning;
+
+  // 启动时拉一次服务端持久化的历史，恢复到消息列表
+  const loadHistory = async () => {
+    if (historyLoadedRef.current) return;
+    historyLoadedRef.current = true;
+    const items = await clientRef.current!.getHistory(200);
+    if (items.length === 0) return;
+    setMessages((prev) => {
+      if (prev.length > 0) return prev; // 已有新会话不覆盖
+      const restored: ThreadMessageLike[] = [];
+      const restoredMeta: Record<string, AssistantMeta> = {};
+      for (const it of items) {
+        if (it.role === "user") {
+          restored.push({
+            role: "user",
+            content: [{ type: "text", text: it.content }],
+            id: uid("user"),
+          });
+        } else if (it.role === "assistant") {
+          const id = uid("hist");
+          const content: any[] = [];
+          if ((it.content ?? "").trim()) content.push({ type: "text", text: it.content });
+          if (content.length === 0) content.push({ type: "text", text: "" });
+          restored.push({
+            role: "assistant",
+            content,
+            id,
+            status: { type: "complete", reason: "unknown" },
+          } as ThreadMessageLike);
+          restoredMeta[id] = { tools: (it.tools ?? []).map((t) => ({
+            type: "tool-call",
+            toolCallId: uid("tool"),
+            toolName: t.name,
+            title: t.title,
+            status: t.status === "completed" ? "completed" : t.status === "failed" ? "failed" : "in_progress",
+          })), running: false };
+        }
+      }
+      setMeta((p) => ({ ...p, ...restoredMeta }));
+      return restored;
+    });
+  };
 
   const finalizeAssistant = (aid: string) => {
     setIsRunning(false);
@@ -127,6 +170,7 @@ export function ChatProvider({
       setErrorMsg("");
       pollRef.current.stopped = true;
       if (pollRef.current.timer) window.clearTimeout(pollRef.current.timer);
+      void loadHistory();
       // 有待发消息：连接恢复，立即补发
       const pending = pendingRef.current;
       if (pending && !isRunningRef.current) {

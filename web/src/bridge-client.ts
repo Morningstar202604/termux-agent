@@ -33,10 +33,19 @@ export interface AgentSettings {
   temperature: number;
   maxTokens: number;
   thinking: "" | "low" | "medium" | "high";
+  permissionMode: "auto" | "approve" | "smart_approve" | "chat";
   apiKey: string;
   gooseRunning?: boolean;
   goosePort?: number;
   gooseHome?: string;
+}
+
+export interface HistoryItem {
+  role: "user" | "assistant";
+  content: string;
+  ts: number;
+  stopReason?: string;
+  tools?: { name: string; title?: string; status: string }[];
 }
 
 interface ServerState {
@@ -89,7 +98,6 @@ export class BridgeClient {
       return { ok: false, error: String((e as Error)?.message ?? e) };
     }
   }
-
   /** 停止正在运行的回复 */
   async stop(): Promise<boolean> {
     try {
@@ -98,6 +106,33 @@ export class BridgeClient {
         cache: "no-store",
       });
       return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async getHistory(limit = 200): Promise<HistoryItem[]> {
+    try {
+      const r = await fetch(`${this.base}/api/history?limit=${limit}`, {
+        cache: "no-store",
+      });
+      const j = await r.json().catch(() => ({} as any));
+      return Array.isArray(j.items) ? j.items : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async clearHistory(): Promise<boolean> {
+    try {
+      const r = await fetch(`${this.base}/api/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+        cache: "no-store",
+      });
+      const j = await r.json().catch(() => ({} as any));
+      return !!j.ok;
     } catch {
       return false;
     }

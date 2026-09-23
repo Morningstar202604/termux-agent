@@ -16,6 +16,64 @@ const SETTINGS_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "s
 const GOOSE_BIN = process.env.GOOSE_BIN || "/workspace/goose/target/release/goose";
 const GOOSE_PORT = Number(process.env.GOOSE_PORT || 3284);
 const GOOSE_HOME = process.env.GOOSE_PATH_ROOT || "/root/.goose-test";
+const HISTORY_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "history.jsonl");
+
+function appendHistory(entry) {
+  try {
+    const line = JSON.stringify({ ...entry, ts: Date.now() });
+    fs.appendFileSync(HISTORY_FILE, line + "\n");
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadHistory(limit = 200) {
+  try {
+    const lines = fs.readFileSync(HISTORY_FILE, "utf8").trim().split("\n").filter(Boolean);
+    const out = lines
+      .slice(-limit)
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function clearHistory() {
+  try {
+    if (fs.existsSync(HISTORY_FILE)) fs.writeFileSync(HISTORY_FILE, "");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function persistTurn(prompt, finalState) {
+  const userText =
+    typeof prompt === "string" ? prompt : prompt?.update?.content ?? "";
+  if (!userText) return;
+  appendHistory({
+    role: "user",
+    content: userText,
+  });
+  appendHistory({
+    role: "assistant",
+    content: finalState.content ?? "",
+    stopReason: finalState.stopReason,
+    tools: state.tools.map((t) => ({
+      name: t.toolName,
+      title: t.title,
+      status: t.status,
+    })),
+  });
+}
 let gooseProc = null;
 
 function loadSettings() {
@@ -37,6 +95,12 @@ function loadSettings() {
             ? s.thinking
             : ""
           : "",
+      permissionMode:
+        typeof s.permissionMode === "string"
+          ? ["auto", "approve", "smart_approve", "chat"].includes(s.permissionMode)
+            ? s.permissionMode
+            : "auto"
+          : "auto",
       apiKey,
     };
   } catch {
@@ -45,6 +109,7 @@ function loadSettings() {
       temperature: 0,
       maxTokens: 0,
       thinking: "",
+      permissionMode: "auto",
       apiKey: process.env.LLM_API_KEY || "",
     };
   }
@@ -73,6 +138,11 @@ function saveSettings(input) {
       ["", "low", "medium", "high"].includes(input.thinking)
         ? input.thinking
         : cur.thinking,
+    permissionMode:
+      typeof input.permissionMode === "string" &&
+      ["auto", "approve", "smart_approve", "chat"].includes(input.permissionMode)
+        ? input.permissionMode
+        : cur.permissionMode,
     apiKey:
       typeof input.apiKey === "string"
         ? input.apiKey.trim().slice(0, 512) || cur.apiKey
@@ -82,11 +152,12 @@ function saveSettings(input) {
     SETTINGS_FILE,
     JSON.stringify(
       {
-        model: next.model,
-        temperature: next.temperature,
-        maxTokens: next.maxTokens,
-        thinking: next.thinking,
-        apiKey: next.apiKey,
+      model: next.model,
+      temperature: next.temperature,
+      maxTokens: next.maxTokens,
+      thinking: next.thinking,
+      permissionMode: next.permissionMode,
+      apiKey: next.apiKey,
       },
       null,
       2,
@@ -247,6 +318,7 @@ function gooseChildEnv() {
   else delete env.GOOSE_MAX_TOKENS;
   if (s.thinking) env.GOOSE_THINKING_EFFORT = s.thinking;
   else delete env.GOOSE_THINKING_EFFORT;
+  env.GOOSE_MODE = s.permissionMode || "auto";
   env.GOOSE_DISABLE_KEYRING = "1";
   env.GOOSE_DISABLE_TELEMETRY = "1";
   return env;
@@ -474,10 +546,22 @@ function handleMessage(raw) {
         })();
         return;
       }
+      const errText = state.error || msg;
       finishState("error", { error: msg });
+      persistTurn(lastPrompt, {
+        status: "error",
+        content: state.text || errText,
+        stopReason: "error",
+      });
     } else {
+      const stop = m.result?.stopReason ?? "end_turn";
+      persistTurn(lastPrompt, {
+        status: "done",
+        content: state.text,
+        stopReason: stop,
+      });
       lastPrompt = null;
-      finishState("done", { stopReason: m.result?.stopReason ?? "end_turn" });
+      finishState("done", { stopReason: stop });
     }
     return;
   }
@@ -556,17 +640,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.startsWith("/api/settings")) {
-    const s = loadSettings();
-    json(res, 200, {
-      ...s,
-      gooseRunning: gooseProc !== null,
-      goosePort: GOOSE_PORT,
-      gooseHome: GOOSE_HOME,
-    });
-    return;
-  }
-
   if (req.method === "POST" && url.startsWith("/api/settings/apply")) {
     let body = "";
     let overflow = false;
@@ -610,6 +683,43 @@ const server = http.createServer((req, res) => {
         json(res, 500, { error: String(e?.message ?? e) });
       }
     });
+    return;
+  }
+
+  if (req.method === "GET" && url.startsWith("/api/settings")) {
+    const s = loadSettings();
+    json(res, 200, {
+      ...s,
+      gooseRunning: gooseProc !== null,
+      goosePort: GOOSE_PORT,
+      gooseHome: GOOSE_HOME,
+    });
+    return;
+  }
+
+  if (url.startsWith("/api/history")) {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => {
+        body += c;
+        if (body.length > 16 * 1024) req.destroy();
+      });
+      req.on("end", () => {
+        let input = {};
+        try {
+          input = JSON.parse(body || "{}");
+        } catch {
+          input = {};
+        }
+        if (input.action === "clear") {
+          json(res, 200, { ok: clearHistory() });
+        } else {
+          json(res, 200, { ok: true });
+        }
+      });
+      return;
+    }
+    json(res, 200, { ok: true, items: loadHistory(500) });
     return;
   }
 

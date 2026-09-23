@@ -51,6 +51,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       temperature: 0,
       maxTokens: 0,
       thinking: "",
+      permissionMode: "auto",
     });
     setMsg("已恢复默认值，点击「保存并重启」生效");
   };
@@ -63,6 +64,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       temperature: form.temperature,
       maxTokens: form.maxTokens,
       thinking: form.thinking,
+      permissionMode: form.permissionMode || "auto",
       apiKey: form.apiKey,
     });
     setSaving(false);
@@ -166,6 +168,34 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                   }`}
                 >
                   {v || "默认"}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <Field
+            label="工具权限"
+            hint="auto 全放行 · approve 逐个审批 · smart 仅危险审批 · chat 纯聊天"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["auto", "全自动"],
+                  ["approve", "逐次审批"],
+                  ["smart_approve", "智能审批"],
+                  ["chat", "仅聊天"],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => set("permissionMode", v)}
+                  className={`rounded-lg border px-2 py-2 text-xs transition ${
+                    (form.permissionMode || "auto") === v
+                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                      : "border-white/10 bg-white/[0.03] text-zinc-400 hover:bg-white/[0.06]"
+                  }`}
+                >
+                  {label}
                 </button>
               ))}
             </div>

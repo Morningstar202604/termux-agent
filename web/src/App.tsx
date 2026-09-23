@@ -49,8 +49,17 @@ export default function App() {
 function Header() {
   const { status, reconnect } = useConn();
   const [showSettings, setShowSettings] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const connected = status === "ready";
   const connecting = status === "connecting";
+
+  const clearHistory = async () => {
+    setClearing(true);
+    const c = new BridgeClient({ onStatus: () => {}, onSnapshot: () => {}, onRunComplete: () => {}, onError: () => {} });
+    await c.clearHistory();
+    setClearing(false);
+    window.location.reload();
+  };
   return (
     <>
       <header className="z-20 flex items-center justify-between border-b border-white/[0.06] bg-[#0a0c10]/90 px-4 py-3 backdrop-blur">
@@ -69,6 +78,16 @@ function Header() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={clearHistory}
+            disabled={clearing}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-400 transition active:scale-95 hover:bg-white/[0.08] hover:text-zinc-200 disabled:opacity-50"
+            aria-label="清空历史"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" />
+            </svg>
+          </button>
           <button
             onClick={() => setShowSettings(true)}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-400 transition active:scale-95 hover:bg-white/[0.08] hover:text-zinc-200"

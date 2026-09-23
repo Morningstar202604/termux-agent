@@ -12,10 +12,10 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -33,7 +33,7 @@ jobs:
         run: bash app/scripts/build_apk.sh release
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: termux-agent-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
@@ -41,7 +41,7 @@ jobs:
 
       - name: Create Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: app/build/app/outputs/flutter-apk/app-release.apk
           draft: false

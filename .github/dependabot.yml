@@ -11,3 +11,16 @@ updates:
         - patch
         - minor
         - major
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor:
+        update-types:
+        - patch
+        - minor
+    ignore:
+    - dep: "typescript"
+      update-type: major

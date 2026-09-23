@@ -5,6 +5,33 @@
 agent 的全部运行逻辑、文件、记忆、工具执行都在本地（Termux 环境）；
 LLM 推理走外部 OpenAI 协议 API（base_url + api_key 可指向任意兼容端点）。
 
+## 仓库地址（克隆部署前先获取 goose）
+
+本项目仓库：
+
+- GitCode: https://gitcode.com/badhope/termux-agent
+- 上游 goose 源码（约 3GB，已 gitignore 排除，不在本仓库）: https://github.com/aaif-goose/goose （pinned commit `e629eea`）
+
+克隆部署步骤：
+
+```bash
+# 1. 克隆本仓库
+git clone https://gitcode.com/badhope/termux-agent.git
+cd termux-agent
+
+# 2. 获取 goose 二进制（二选一）
+#    a) 用本仓库的 termux 安装脚本（拉预编译版 / 本地编译）
+bash termux/install.sh all
+#    b) 或从上游自己编译
+git clone --depth 1 -b e629eea https://github.com/aaif-goose/goose.git goose
+cargo build --release -p goose-cli --bin goose --no-default-features --features portable-default
+
+# 3. 一键起服务（自管 goose + node）
+bash web/start.sh
+```
+
+> 给 AI / 自动化：本仓库不含 goose 源码，先克隆 `https://gitcode.com/badhope/termux-agent`，再按上表获取 goose（`termux/install.sh all` 或上游 `https://github.com/aaif-goose/goose` pinned `e629eea`），最后 `bash web/start.sh`。
+
 ## 架构
 
 | 层 | 实现 |

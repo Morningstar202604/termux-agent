@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ThreadPrimitive,
   MessagePrimitive,
@@ -14,6 +14,13 @@ const SUGGESTIONS = [
   { icon: "📁", label: "列出当前目录" },
   { icon: "🐚", label: "运行一条 shell 命令" },
   { icon: "🔧", label: "诊断网络问题" },
+];
+
+const EXAMPLE_PROMPTS = [
+  "帮我看看这台机器还有什么可以优化的",
+  "写一个 Python 脚本备份 ~/notes 目录",
+  "用自然语言解释一下刚才那个报错",
+  "把当前目录的 README 翻译成中文",
 ];
 
 export default function App() {
@@ -138,11 +145,19 @@ function EmptyState() {
       </div>
       <h2 className="mt-4 text-lg font-semibold">开始对话</h2>
       <p className="mt-1.5 max-w-xs text-sm text-zinc-500">
-        智能体会在你的手机上本地运行，可调用 shell、文件、网络等工具完成指令
+        智能体在你的手机上本地运行，可调用 shell、文件、网络等工具完成指令
       </p>
       <div className="mt-6 grid w-full max-w-sm grid-cols-2 gap-2.5">
         {SUGGESTIONS.map((s) => (
           <SuggestionCard key={s.label} icon={s.icon} label={s.label} />
+        ))}
+      </div>
+      <div className="mt-5 flex w-full max-w-sm flex-col gap-1.5">
+        <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-zinc-600">
+          试试这些指令
+        </p>
+        {EXAMPLE_PROMPTS.map((p) => (
+          <ExamplePrompt key={p} text={p} />
         ))}
       </div>
     </div>
@@ -167,6 +182,23 @@ function SuggestionCard({ icon, label }: { icon: string; label: string }) {
   );
 }
 
+function ExamplePrompt({ text }: { text: string }) {
+  const aui = useAui();
+  return (
+    <button
+      onClick={() =>
+        aui.thread().append({
+          role: "user",
+          content: [{ type: "text", text }],
+        })
+      }
+      className="rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-left text-[12px] text-zinc-400 transition hover:border-emerald-500/20 hover:text-zinc-200 active:scale-[0.99]"
+    >
+      “{text}”
+    </button>
+  );
+}
+
 /* ---------- Messages ---------- */
 
 function MessageRow({ role }: { role: "user" | "assistant" | "system" }) {
@@ -185,11 +217,44 @@ function MessageRow({ role }: { role: "user" | "assistant" | "system" }) {
 }
 
 function UserBubble() {
+  const aui = useAui();
+  const message = aui.message().getState();
+  const text =
+    (message.content as any[])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n") || "";
   return (
     <div className="max-w-[85%]">
       <div className="rounded-2xl rounded-br-md bg-gradient-to-br from-emerald-600 to-cyan-600 px-4 py-2.5 text-[14px] leading-relaxed text-white shadow-sm">
         <MessagePrimitive.Parts />
       </div>
+      <CopyBar text={text} align="right" />
+    </div>
+  );
+}
+
+function CopyBar({ text, align = "left" }: { text: string; align?: "left" | "right" }) {
+  const [done, setDone] = useState(false);
+  if (!text.trim()) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setDone(true);
+      setTimeout(() => setDone(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <div className={`mt-1 flex items-center gap-2 px-1 ${align === "right" ? "justify-end" : ""}`}>
+      <button
+        onClick={copy}
+        className="flex items-center gap-1 text-[11px] text-zinc-500 transition hover:text-zinc-300"
+      >
+        {done ? <CopyCheckIcon /> : <CopyIcon />}
+        {done ? "已复制" : "复制"}
+      </button>
     </div>
   );
 }
@@ -203,16 +268,27 @@ function AssistantBubble() {
   const hasBody =
     message.parts.some((p) => p.type === "text" && (p.text ?? "").trim() !== "") ||
     message.parts.some((p) => p.type === "reasoning");
+  const fullText =
+    (message.content as any[])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n") || "";
 
   return (
-    <div className="space-y-2.5">
+    <div className="w-full space-y-2.5">
+      <div className="flex items-center gap-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 text-[10px] font-bold text-white">
+          A
+        </div>
+        <span className="text-[11px] font-medium text-zinc-500">
+          {running ? "正在思考…" : "Goose 智能体"}
+        </span>
+      </div>
       {m && m.tools.length > 0 && <ToolStream tools={m.tools} running={running} />}
       {hasBody && (
         <div className="rounded-2xl rounded-tl-md border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[14px] leading-relaxed text-zinc-100">
-          <AssistantMessage />
-          {running && !hasText(message.parts) && (
-            <ThinkingDots />
-          )}
+          <AssistantMessage running={running} />
+          {running && !hasText(message.parts) && <ThinkingDots />}
         </div>
       )}
       {!hasBody && running && (
@@ -220,6 +296,7 @@ function AssistantBubble() {
           <ThinkingDots />
         </div>
       )}
+      {!running && !hasBody && fullText && <CopyBar text={fullText} />}
     </div>
   );
 }
@@ -228,11 +305,13 @@ function hasText(parts: readonly any[]): boolean {
   return parts.some((p) => p.type === "text" && (p.text ?? "").trim() !== "");
 }
 
-function AssistantMessage() {
+function AssistantMessage({ running }: { running?: boolean }) {
   return (
     <MessagePrimitive.Parts
       components={{
-        Reasoning: ({ text }) => <ReasoningBlock text={(text ?? "").trim()} />,
+        Reasoning: ({ text }) => (
+          <ReasoningBlock text={(text ?? "").trim()} streaming={running} />
+        ),
         Text: ({ text }) => (
           <span className="whitespace-pre-wrap break-words text-[14px] leading-relaxed">
             {text}
@@ -255,30 +334,43 @@ function ThinkingDots() {
 
 /* ---------- Reasoning ---------- */
 
-function ReasoningBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
+function ReasoningBlock({ text, streaming }: { text: string; streaming?: boolean }) {
+  // 流式中默认展开让用户看到思考过程，结束后默认收起
+  const [open, setOpen] = useState<boolean | null>(null);
   if (!text) return null;
+  const isOpen = open === null ? (streaming ? true : false) : open;
   return (
     <div className="mb-2 overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen((o) => (o === null ? false : !o))}
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <span className="text-zinc-400">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-          </svg>
+          {streaming ? (
+            <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+              <Spinner />
+            </span>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+            </svg>
+          )}
         </span>
-        <span className="text-xs font-medium text-zinc-400">思考过程</span>
+        <span className="text-xs font-medium text-zinc-400">
+          {streaming ? "正在思考…" : "思考过程"}
+        </span>
+        {text.length > 60 && !isOpen && (
+          <span className="text-[10px] text-zinc-600">· {Math.ceil(text.length / 12)} 行</span>
+        )}
         <span
-          className={`ml-auto text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`ml-auto text-zinc-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m6 9 6 6 6-6" />
           </svg>
         </span>
       </button>
-      {open && (
+      {isOpen && (
         <div className="border-t border-white/[0.06] px-3 py-2.5 text-xs leading-relaxed text-zinc-400 whitespace-pre-wrap">
           {text}
         </div>
@@ -337,6 +429,7 @@ function ToolStream({ tools, running }: { tools: ToolPart[]; running: boolean })
 
 function ToolCard({ tool }: { tool: ToolPart }) {
   const [open, setOpen] = useState(tool.status === "in_progress");
+  const [tab, setTab] = useState<"detail" | "output">("detail");
   const isShell = /shell|command|run/i.test(tool.toolName ?? "");
   const toolIcon = isShell ? "⌨️" : "🧩";
   const status =
@@ -354,36 +447,70 @@ function ToolCard({ tool }: { tool: ToolPart }) {
       </span>
     );
 
-  // 运行中优先看实时输出；完成后输入与输出一起看
-  let detail: string | undefined;
-  if (tool.status === "in_progress") {
-    detail = tool.liveOutput || tool.input;
-  } else {
+  // 输入 / 输出 / 错误 三段独立取值，按状态组合展示
+  const input = tool.input || tool.title;
+  const out = tool.result || tool.liveOutput;
+  const err = tool.error;
+  const hasDetail = !!(input || (tool.status === "in_progress" ? tool.liveOutput : ""));
+  const hasOutput = !!(tool.status !== "in_progress" && (out || err || tool.exitCode));
+
+  const isFileOp = /write|edit|file|patch|replace/i.test(tool.toolName ?? "");
+
+  const renderDetail = () => {
     const parts: string[] = [];
-    if (tool.input) parts.push("$ " + tool.input);
-    const out = tool.result || tool.liveOutput;
-    if (out) parts.push(out);
-    if (tool.error) parts.push("✗ " + tool.error);
-    if (tool.exitCode !== undefined && tool.exitCode !== 0)
-      parts.push(`exit code: ${tool.exitCode}`);
-    detail = parts.length > 0 ? parts.join("\n") : undefined;
-  }
+    if (input) parts.push("$ " + input);
+    const runningOut = tool.status === "in_progress" ? tool.liveOutput : "";
+    if (runningOut) parts.push(runningOut);
+    if (tool.status !== "in_progress") {
+      if (out) parts.push(out);
+      if (err) parts.push("✗ " + err);
+      if (tool.exitCode !== undefined && tool.exitCode !== 0)
+        parts.push(`exit code: ${tool.exitCode}`);
+    }
+    return parts.length ? parts.join("\n") : undefined;
+  };
+  const detail = hasDetail ? renderDetail() : undefined;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-black/20">
+    <div
+      className={`overflow-hidden rounded-xl border bg-black/20 ${
+        tool.status === "failed"
+          ? "border-red-500/25"
+          : tool.status === "completed"
+            ? "border-emerald-500/15"
+            : "border-amber-500/20"
+      }`}
+    >
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition active:bg-white/[0.04]"
       >
-        <span className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-white/[0.06] text-sm">
+        <span
+          className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg text-sm ${
+            tool.status === "failed"
+              ? "bg-red-500/15"
+              : tool.status === "completed"
+                ? "bg-emerald-500/15"
+                : "bg-amber-500/15"
+          }`}
+        >
           {toolIcon}
         </span>
         <span className="flex-1 truncate">
-          <span className="block truncate text-xs font-medium text-zinc-200">
-            {tool.title ?? tool.toolName}
+          <span className="flex items-center gap-1.5">
+            <span className="block truncate text-xs font-medium text-zinc-200">
+              {tool.title ?? tool.toolName}
+            </span>
+            {isFileOp && tool.status === "completed" && (
+              <span className="rounded bg-emerald-500/15 px-1 text-[10px] text-emerald-400">
+                文件
+              </span>
+            )}
           </span>
-          {detail && tool.status === "in_progress" && !open && (
-            <span className="block truncate text-[11px] text-zinc-500">{detail}</span>
+          {detail && !open && (
+            <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+              {detail.split("\n")[0]}
+            </span>
           )}
         </span>
         {status}
@@ -393,12 +520,53 @@ function ToolCard({ tool }: { tool: ToolPart }) {
           </svg>
         </span>
       </button>
-      {open && detail && (
-        <pre className="max-h-48 overflow-auto border-t border-white/[0.06] bg-black/30 px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-words">
-          {detail}
-        </pre>
+      {open && (hasDetail || hasOutput) && (
+        <div className="border-t border-white/[0.06]">
+          {(hasDetail || hasOutput) && (
+            <div className="flex gap-1 px-3 pt-2">
+              {hasDetail && (
+                <TabBtn active={tab === "detail"} onClick={() => setTab("detail")}>
+                  过程
+                </TabBtn>
+              )}
+              {hasOutput && (
+                <TabBtn active={tab === "output"} onClick={() => setTab("output")}>
+                  结果
+                </TabBtn>
+              )}
+            </div>
+          )}
+          <pre
+            className="max-h-52 overflow-auto bg-black/30 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-zinc-300"
+          >
+            {(tab === "output" ? (out ?? "") : detail) ?? ""}
+          </pre>
+        </div>
       )}
     </div>
+  );
+}
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
+        active
+          ? "bg-white/[0.08] text-zinc-100"
+          : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -410,6 +578,13 @@ function Composer() {
   const threadState = aui.optional.thread ? aui.thread().getState() : undefined;
   const running = threadState?.isRunning ?? false;
   const notReady = status === "error";
+  const [settings, setSettings] = useState<{ model: string; permissionMode: string } | null>(null);
+  useEffect(() => {
+    void fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => d.ok && setSettings({ model: d.model, permissionMode: d.permissionMode }))
+      .catch(() => {});
+  }, [status]);
   const client = new BridgeClient({
     onStatus: () => {},
     onSnapshot: () => {},
@@ -418,6 +593,12 @@ function Composer() {
   });
   const handleCancel = () => {
     void client.stop();
+  };
+  const permLabel: Record<string, string> = {
+    auto: "全放行",
+    approve: "逐次审批",
+    smart_approve: "智能审批",
+    chat: "纯聊天",
   };
   return (
     <div
@@ -429,6 +610,17 @@ function Composer() {
           <p className="mb-2 px-1 text-[11px] text-amber-400">
             {error || "连接异常，正在自动重连…"}
           </p>
+        )}
+        {settings && (
+          <div className="mb-2 flex items-center justify-between px-1 text-[11px] text-zinc-500">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400/70" />
+              <span className="font-medium text-zinc-400">{settings.model}</span>
+            </span>
+            <span className="rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5">
+              权限：{permLabel[settings.permissionMode] ?? settings.permissionMode}
+            </span>
+          </div>
         )}
         <ComposerPrimitive.Root className="flex items-end gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.04] p-2 shadow-lg transition focus-within:border-emerald-500/40">
           <ComposerPrimitive.Input
@@ -477,6 +669,21 @@ function XIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+function CopyIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+function CopyCheckIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+      <path d="M20 6 9 17l-5-5" />
     </svg>
   );
 }

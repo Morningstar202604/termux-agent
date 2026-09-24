@@ -1,0 +1,144 @@
+import { useMemo, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import type { Msg, Part, ToolPart } from "../types";
+import { IconChevron } from "./icons";
+import { PocketLogo } from "./PocketLogo";
+
+/* ---------- Markdown（含代码块/表格，DOMPurify 消毒） ---------- */
+
+export function Markdown({ text }: { text: string }) {
+  const html = useMemo(
+    () => DOMPurify.sanitize(marked.parse(text) as string),
+    [text]
+  );
+  return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/* ---------- 思考块 ---------- */
+
+function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState<boolean>(streaming);
+  if (!text.trim()) return null;
+  return (
+    <div className={`thinking ${open ? "open" : ""}`}>
+      <button className="thinking-head" onClick={() => setOpen((v) => !v)}>
+        {streaming && !open ? <span className="dot-blink" /> : <span className="dot" />}
+        <span>{open ? "思考过程" : "思考过程 · 已收起"}</span>
+        <IconChevron open={open} />
+      </button>
+      {open && <div className="thinking-body">{text}</div>}
+    </div>
+  );
+}
+
+/* ---------- 工具卡片（含审批） ---------- */
+
+const STATUS_LABEL: Record<ToolPart["status"], string> = {
+  running: "运行中",
+  waiting: "需要确认",
+  completed: "完成",
+  failed: "失败",
+  denied: "已拒绝",
+};
+
+function ToolCard({
+  tool,
+  onApproval,
+}: {
+  tool: ToolPart;
+  onApproval: (id: string, d: "allow_once" | "allow_always" | "deny") => void;
+}) {
+  const [open, setOpen] = useState(tool.status === "waiting");
+  const inputText =
+    typeof tool.input === "string"
+      ? tool.input
+      : JSON.stringify(tool.input ?? {}, null, 2);
+  const waiting = tool.status === "waiting";
+  return (
+    <div className={`tool ${tool.status}`}>
+      <button className="tool-head" onClick={() => setOpen((v) => !v)}>
+        <span className={`tool-dot ${tool.status}`} />
+        <span className="tool-name">{tool.name}</span>
+        <span className={`tool-status ${tool.status}`}>{STATUS_LABEL[tool.status]}</span>
+        <IconChevron open={open} />
+      </button>
+      {open && (
+        <div className="tool-body">
+          <pre className="tool-input">$ {inputText}</pre>
+          {waiting && (
+            <div className="approval">
+              <p className="approval-summary">
+                <b>{tool.name}</b>：{tool.summary || "需要你确认"}
+                {tool.risk === "danger" ? "（危险操作）" : ""}
+              </p>
+              <div className="approval-btns">
+                <button className="btn ok" onClick={() => onApproval(tool.id, "allow_once")}>允许一次</button>
+                <button className="btn" onClick={() => onApproval(tool.id, "allow_always")}>始终允许</button>
+                <button className="btn danger" onClick={() => onApproval(tool.id, "deny")}>拒绝</button>
+              </div>
+              <p className="approval-note">「始终允许」只对当前会话的同类操作生效；不点击会在超时后自动拒绝。</p>
+            </div>
+          )}
+          {!waiting && tool.result && (
+            <pre className="tool-result">{JSON.stringify(tool.result, null, 2)}</pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 消息条目 ---------- */
+
+export function MessageItem({
+  msg,
+  parts,
+  onApproval,
+}: {
+  msg: Msg;
+  parts: Part[];
+  onApproval: (id: string, d: "allow_once" | "allow_always" | "deny") => void;
+}) {
+  if (msg.role === "user") {
+    const text = parts
+      .filter((p): p is Extract<Part, { type: "text" }> => p.type === "text")
+      .map((p) => p.text)
+      .join("\n");
+    return (
+      <div className="row user">
+        <div className="bubble user">{text}</div>
+      </div>
+    );
+  }
+  const hasContent = parts.length > 0;
+  return (
+    <div className="row agent">
+      <div className="agent-head">
+        <span className="avatar">
+          <PocketLogo size={26} />
+        </span>
+        <span className="agent-name">{msg.done ? "口袋 Agent" : "正在思考…"}</span>
+      </div>
+      {msg.error && <div className="err-banner">{msg.error}</div>}
+      {parts.map((p, i) =>
+        p.type === "thinking" ? (
+          <ThinkingBlock key={i} text={p.text} streaming={!msg.done} />
+        ) : p.type === "tool" ? (
+          <ToolCard key={p.tool.id} tool={p.tool} onApproval={onApproval} />
+        ) : p.text.trim() ? (
+          <div className="bubble agent" key={i}>
+            <Markdown text={p.text} />
+          </div>
+        ) : null
+      )}
+      {!hasContent && !msg.done && (
+        <div className="dots">
+          <i />
+          <i />
+          <i />
+        </div>
+      )}
+    </div>
+  );
+}

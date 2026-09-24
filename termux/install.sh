@@ -1,109 +1,41 @@
 #!/usr/bin/env bash
+# 口袋 Agent · 手机端一键安装（新版，替代旧的 goose 源码编译方案）
+#
+# 用法（在 Termux 里执行）：
+#   pkg install git           # 首次
+#   git clone <本仓库地址>
+#   cd termux-agent && bash termux/install.sh
+#
+# 安装内容（约 2-5 分钟，无需编译任何 Rust）：
+#   1. Python 3            pkg install python
+#   2. termux-api          手机能力桥（通知/剪贴板/电量/短信/电话…）
+#   3. pip 依赖             fastapi / uvicorn / openai
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
-# One-shot install for the Android agent distribution on Termux.
-#
-# Usage:
-#   pkg install termux-api            # 一次性，装 Android 桥接
-#   termux-setup-storage              # 一次性，授予文件访问
-#   bash install.sh                   # 安装 goose + 配置 provider
-#
-# 前置：把 config/provider.json 和 termux/termux-bridge 拷贝到手机上的 ~/.agent/ 目录
+step() { echo ""; echo "== $1 =="; }
 
-ROOT="${GOOSE_HOME:-$HOME/.agent}"
-GOOSE_BIN="${GOOSE_BIN:-$HOME/.local/bin/goose}"
+step "1/3 检查 Termux 基础组件"
+command -v pkg >/dev/null 2>&1 || { echo "❌ 请先在 Termux 里执行：pkg install termux-tools"; exit 1; }
+command -v python >/dev/null 2>&1 || { echo "安装 Python 3..."; pkg install -y python; }
+if ! command -v termux-notification >/dev/null 2>&1; then
+  echo "安装 termux-api（手机能力桥）..."
+  pkg install -y termux-api
+fi
+# 存储权限（读 /sdcard、~/storage 需要）
+if [ ! -d "$HOME/storage" ]; then
+  echo "提示：首次使用请允许存储权限 → termux-setup-storage（会弹出系统授权）"
+fi
+python --version
 
-usage() {
-  cat <<'EOF'
-Usage: bash install.sh [mode]
+step "2/3 安装 Python 依赖（fastapi / uvicorn / openai）"
+python -m pip install --upgrade pip -q
+python -m pip install -r agentd/requirements.txt -q
 
-Modes:
-  clone          克隆/更新 goose 源码到 $GOOSE_HOME/goose
-  build [mode]   构建 goose（默认 portable-default，等价于 build portable）
-  install-binary 构建后安装到 ~/.local/bin/goose
-  setup-provider 把 $GOOSE_HOME/provider.json 写入 goose custom_providers
-  setup-bridge   安装 termux-bridge 到 ~/.local/bin
-  setup-env      安装/检查 $GOOSE_HOME/termux.env
-  all            依次执行以上全部步骤（默认）
-EOF
-}
-
-MODE="${1:-all}"
-
-cmd_clone() {
-  echo "[clone] 克隆/更新 goose..."
-  mkdir -p "$ROOT"
-  if [ -d "$ROOT/goose" ]; then
-    git -C "$ROOT/goose" pull --ff-only || echo "提示：git pull 失败（可能离线或分叉），跳过更新"
-  else
-    git clone --depth 1 https://github.com/aaif-goose/goose.git "$ROOT/goose"
-  fi
-}
-
-cmd_build() {
-  local variant="${1:-portable-default}"
-  echo "[build] 构建 goose（feature: $variant）..."
-  command -v cargo >/dev/null || { echo "缺少 Rust 工具链，执行: pkg install rust"; exit 1; }
-  command -v "$ROOT/goose/target/release/goose" >/dev/null || cmd_clone
-  ( cd "$ROOT/goose" && cargo build --release -p goose-cli --bin goose --no-default-features --features "$variant" )
-}
-
-cmd_install_binary() {
-  echo "[install-binary] 安装 goose 到 $GOOSE_BIN ..."
-  mkdir -p "$HOME/.local/bin"
-  cp "$ROOT/goose/target/release/goose" "$GOOSE_BIN"
-}
-
-cmd_setup_provider() {
-  echo "[setup-provider] 配置 provider..."
-  if [ ! -f "$ROOT/provider.json" ]; then
-    echo "未找到 $ROOT/provider.json，请先拷贝 config/provider.json 到 $ROOT/"
-    exit 1
-  fi
-  # 文件名必须与 provider.json 的 name 字段一致，goose 按 {name}.json 加载
-  local provider_name
-  if command -v jq >/dev/null 2>&1; then
-    provider_name=$(jq -r '.name' "$ROOT/provider.json")
-  else
-    provider_name=$(grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$ROOT/provider.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-  fi
-  mkdir -p "$HOME/.config/goose/custom_providers"
-  cp "$ROOT/provider.json" "$HOME/.config/goose/custom_providers/$provider_name.json"
-  echo "provider 已写入 ~/.config/goose/custom_providers/$provider_name.json"
-}
-
-cmd_setup_bridge() {
-  echo "[setup-bridge] 安装 termux-bridge..."
-  [ -f "$ROOT/termux-bridge" ] || { echo "未找到 $ROOT/termux-bridge"; exit 1; }
-  chmod +x "$ROOT/termux-bridge"
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$ROOT/termux-bridge" "$HOME/.local/bin/termux-bridge"
-}
-
-cmd_setup_env() {
-  echo "[setup-env] 安装 termux.env..."
-  [ -f "$ROOT/termux.env" ] || { echo "未找到 $ROOT/termux.env"; exit 1; }
-  echo "请编辑 $ROOT/termux.env 填入 LLM_API_KEY（及 provider.json 中的 base_url/model）"
-  echo "每次运行前: source $ROOT/termux.env && $GOOSE_BIN chat"
-}
-
-cmd_all() {
-  cmd_clone
-  cmd_build portable-default
-  cmd_install_binary
-  cmd_setup_provider
-  cmd_setup_bridge
-  cmd_setup_env
-  echo "完成。运行: source $ROOT/termux.env && $GOOSE_BIN chat"
-}
-
-case "$MODE" in
-  clone) cmd_clone ;;
-  build) cmd_build "${2:-portable-default}" ;;
-  install-binary) cmd_install_binary ;;
-  setup-provider) cmd_setup_provider ;;
-  setup-bridge) cmd_setup_bridge ;;
-  setup-env) cmd_setup_env ;;
-  all) cmd_all ;;
-  *) usage; exit 1 ;;
-esac
+step "3/3 完成 ✅"
+echo ""
+echo "启动：            bash termux/start.sh"
+echo "浏览器打开：      http://127.0.0.1:8787"
+echo ""
+echo "首次使用：在页面右上角 ⚙ 设置里选择模型厂商（豆包/DeepSeek/千问/Kimi/智谱/硅基流动）并填入 API Key。"
+echo "手机能力：发短信、打电话、定位等更多能力将在后续版本开放（当前已支持 电量/通知/剪贴板）。"

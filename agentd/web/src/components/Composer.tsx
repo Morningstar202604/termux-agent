@@ -26,7 +26,8 @@ export function Composer({
   }, [text]);
 
   const submit = () => {
-    if (busy || !text.trim()) return;
+    // busy 时不拦截：回复生成中继续发送会进入消息队列，自动排队执行
+    if (!text.trim()) return;
     onSend(text);
     setText("");
   };

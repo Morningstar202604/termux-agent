@@ -6,7 +6,7 @@
  *  - 兜底：只有页面导航请求离线时才回退 index.html；资源请求失败给 504（绝不拿 HTML 冒充 JS）
  *  - activate：清理旧版本缓存
  */
-const CACHE = "pa-shell-v2";
+const CACHE = "pa-shell-v3";
 const PRECACHE = ["/", "/index.html", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 async function precacheAppShell() {
@@ -47,6 +47,22 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   const isNavigate = req.mode === "navigate";
+
+  // 页面导航：网络优先（新版本立即生效），成功后更新 app shell 缓存；离线回退缓存
+  if (isNavigate) {
+    e.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put("/index.html", copy)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(() => caches.match("/index.html"))
+    );
+    return;
+  }
 
   e.respondWith(
     caches.match(req).then(

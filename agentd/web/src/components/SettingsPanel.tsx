@@ -109,6 +109,7 @@ export function SettingsPanel({
           token: form.server?.token ?? "",
           approval_timeout: Number(form.server?.approval_timeout ?? 120),
         },
+        user_prefs: form.user_prefs ?? "",
       });
       // 局域网令牌同步到本地，后续请求自动携带
       setToken((form.server?.token ?? "").trim());
@@ -260,6 +261,21 @@ export function SettingsPanel({
               }
             />
             <p className="hint">等待审批超过该时长自动拒绝（安全优先）</p>
+          </div>
+        </div>
+
+        {/* 长期偏好（跨会话记忆） */}
+        <div className="group">
+          <p className="group-title">长期偏好</p>
+          <div className="field">
+            <label>我希望 Agent 记住的事</label>
+            <textarea
+              rows={4}
+              value={form.user_prefs ?? ""}
+              onChange={(e) => setForm((f) => (f ? { ...f, user_prefs: e.target.value } : f))}
+              placeholder={"例如：\n· 回复用简体中文，简洁直接\n· 我常用支付宝，涉及支付时提醒我\n· 我是学生，白天上课，晚上有空"}
+            />
+            <p className="hint">这段文字会写进每次对话的系统提示（存在本机，不会上传）。</p>
           </div>
         </div>
 

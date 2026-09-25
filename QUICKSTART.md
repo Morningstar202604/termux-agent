@@ -62,7 +62,9 @@ npm run build                                  # 构建 dist（agentd 直接托�
 | M3 美术重构（品牌口袋 Logo 全套 + PWA manifest/图标 + 明暗双主题可切换 + 内联图标库 + 设置分组） | ✅ 已完成 |
 | 查漏补缺（--lan 强制令牌、前端令牌自动携带、未知工具也审批、SSE 心跳、子进程超时清理、删除级联清理、写文件限 1MB） | ✅ 已完成 |
 | M4 APK/PWA（Service Worker 离线壳 + PWA 安装指引 + WebView 壳 APK 模板工程） | ✅ 已完成 |
-| M5 安全加固、真机矩阵、文档（数据库/目录权限 600/700、短 key 打码改进、超时拒绝回归、device-matrix 排障手册） | ✅ 已完成（本轮） |
+| M5 安全加固、真机矩阵、文档（数据库/目录权限 600/700、短 key 打码改进、超时拒绝回归、device-matrix 排障手册） | ✅ 已完成 |
+| P0 先进方案落地（固定 system 前缀→提示缓存命中 1 折、思考模型识别分流、消息排队自动执行、长期偏好 user_prefs 跨会话注入、审批时自动展开思考链） | ✅ 已完成（本轮） |
+| P1 待做（sqlite-vec+FTS5 向量记忆、sherpa-onnx 端侧语音、APScheduler 定时触发、MCP 客户端可选接入） | ⬜ |
 
 遗留说明：旧 `web/`（React+assistant-ui+goose 桥）、旧 `app/`（Flutter）、
 `watchdog.sh`、`termux/install.legacy.sh` 为 AI 生成的旧实现，仅作参考，勿在新系统使用。

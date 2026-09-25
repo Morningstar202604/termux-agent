@@ -17,8 +17,8 @@ export function Markdown({ text }: { text: string }) {
 
 /* ---------- 思考块 ---------- */
 
-function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
-  const [open, setOpen] = useState<boolean>(streaming);
+function ThinkingBlock({ text, streaming, forceOpen }: { text: string; streaming: boolean; forceOpen?: boolean }) {
+  const [open, setOpen] = useState<boolean>(streaming || forceOpen || false);
   if (!text.trim()) return null;
   return (
     <div className={`thinking ${open ? "open" : ""}`}>
@@ -112,6 +112,8 @@ export function MessageItem({
     );
   }
   const hasContent = parts.length > 0;
+  // 有工具在等审批时，自动展开同消息的思考块，让用户看到模型为什么发起该操作
+  const waitingApproval = parts.some((p) => p.type === "tool" && p.tool.status === "waiting");
   return (
     <div className="row agent">
       <div className="agent-head">
@@ -121,9 +123,10 @@ export function MessageItem({
         <span className="agent-name">{msg.done ? "口袋 Agent" : "正在思考…"}</span>
       </div>
       {msg.error && <div className="err-banner">{msg.error}</div>}
+      {msg.queued && <div className="err-banner queued-banner">已排队：上一轮回复还在进行中，这条将在完成后自动执行。</div>}
       {parts.map((p, i) =>
         p.type === "thinking" ? (
-          <ThinkingBlock key={i} text={p.text} streaming={!msg.done} />
+          <ThinkingBlock key={i} text={p.text} streaming={!msg.done} forceOpen={waitingApproval} />
         ) : p.type === "tool" ? (
           <ToolCard key={p.tool.id} tool={p.tool} onApproval={onApproval} />
         ) : p.text.trim() ? (

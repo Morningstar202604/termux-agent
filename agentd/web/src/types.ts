@@ -21,6 +21,7 @@ export interface Msg {
   parts: Part[];
   done: boolean;
   error?: string;
+  queued?: boolean;
 }
 
 export function uid(prefix: string): string {

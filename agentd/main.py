@@ -125,7 +125,16 @@ def create_app() -> FastAPI:
             if q:
                 q.put_nowait({"type": "error", "message": str(e)})
         finally:
+            run = runs.get(session_id)
+            pending = (run or {}).get("pending", [])
             runs.pop(session_id, None)
+            # 排队续跑：同一会话期间发来的消息在此自动执行
+            if pending:
+                nxt = pending.pop(0)
+                queue2: asyncio.Queue = asyncio.Queue()
+                runs[session_id] = {"task": None, "queue": queue2, "pending": pending}
+                task2 = asyncio.create_task(run_agent(session_id, nxt))
+                runs[session_id]["task"] = task2
 
     def cancel_run(session_id: str) -> bool:
         run = runs.get(session_id)
@@ -188,8 +197,25 @@ def create_app() -> FastAPI:
         elif store.get_session(session_id) is None:
             raise HTTPException(404, "会话不存在")
 
+        # 同一会话进行中：消息落库并入队，当前轮结束后自动执行（不再 409 拒绝）
         if session_id in runs:
-            raise HTTPException(409, "上一轮回复还在进行中，请稍候再发")
+            runs[session_id].setdefault("pending", []).append(message)
+            store.add_message(session_id, "user", message)
+            sid = session_id
+
+            async def queued_sse():
+                yield f"data: {json.dumps({'type': 'session', 'session_id': sid}, ensure_ascii=False)}\n\n"
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"type": "queued", "message": "上一轮回复还在进行中，这条已排队，完成后自动执行"},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                yield f"data: {json.dumps({'type': 'done', 'stop_reason': 'queued'}, ensure_ascii=False)}\n\n"
+
+            return StreamingResponse(queued_sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
         queue: asyncio.Queue = asyncio.Queue()
         # 先注册再启动任务，避免 run_agent 首帧 emit 时 runs 尚未就绪的竞态
@@ -331,6 +357,9 @@ def create_app() -> FastAPI:
             at = server.get("approval_timeout")
             if isinstance(at, (int, float)) and at > 0:
                 settings_mgr.save({"server": {"approval_timeout": min(int(at), 600)}})
+        prefs = payload.get("user_prefs")
+        if isinstance(prefs, str):
+            settings_mgr.save({"user_prefs": prefs.strip()[:4000]})
         s = settings_mgr.get()
         llm_out = dict(s.get("llm", {}))
         llm_out["api_key"] = mask_key(llm_out.get("api_key", ""))

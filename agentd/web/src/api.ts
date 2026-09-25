@@ -51,6 +51,7 @@ export interface AppSettings {
   llm: LlmSettings;
   permission_mode: "auto" | "approve" | "chat";
   server: { allow_lan?: boolean; token?: string; approval_timeout?: number };
+  user_prefs?: string;
 }
 
 export interface ToolInfo {
@@ -74,6 +75,7 @@ export type ChatEvent =
       status: "completed" | "failed" | "denied";
       result: Record<string, unknown>;
     }
+  | { type: "queued"; message: string }
   | { type: "done"; stop_reason: string }
   | { type: "error"; message: string };
 

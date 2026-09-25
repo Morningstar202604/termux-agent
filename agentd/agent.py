@@ -24,6 +24,19 @@ MAX_TOOL_TEXT = 6000     # 回传给模型的工具结果上限
 Emit = Callable[[dict], Awaitable[None]]
 AskApproval = Callable[[str, str, str, str], Awaitable[str]]  # (tool_call_id, name, summary, risk) -> allow|deny
 
+# 固定 system 前缀：内容恒定不变，位于请求最前，配合厂商「提示缓存」机制
+# （相同前缀命中后 token 费约 1 折，DeepSeek/豆包/百炼/Kimi 均支持）。
+# 注意：勿随意改动这里，改动会降低缓存命中率。
+SYSTEM_FIXED = (
+    "你是「口袋 Agent」，运行在用户 Android 手机的 Termux 环境里，可以调用手机能力"
+    "（短信、电话、定位、传感器、WiFi、通知、剪贴板、文件、shell 等）。\n"
+    "原则：\n"
+    "1. 用用户的语言回答（默认简体中文），简洁直接，不写废话。\n"
+    "2. 需要用户信息时先调用工具获取，不臆测；拿不到就如实说明。\n"
+    "3. 工具返回后，用自然语言把结果讲清楚。\n"
+    "4. 危险操作（删除、拨号、写文件、shell）会由用户审批，你只负责发起，不要绕过审批。"
+)
+
 
 def _fallback_title(message: str) -> str:
     """回退标题：取首条消息前 14 字（与 mock 规则一致）。"""
@@ -66,7 +79,7 @@ class Agent:
             return MockLLM(self.settings)
         from openai import AsyncOpenAI
 
-        llm = self.settings.get("llm", {})
+        llm = self.settings.get().get("llm", {})
         return AsyncOpenAI(
             api_key=llm.get("api_key") or "empty",
             base_url=llm.get("base_url") or None,
@@ -81,7 +94,7 @@ class Agent:
                 d = chunk.choices[0].delta
                 yield d.content, d.reasoning_content, d.tool_calls
             return
-        llm = self.settings.get("llm", {})
+        llm = self.settings.get().get("llm", {})
         client = self._llm()
         kwargs = {
             "model": llm.get("model") or "unknown",
@@ -106,6 +119,13 @@ class Agent:
             reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
             yield delta.content, reasoning, delta.tool_calls
 
+    def _is_reasoning_model(self) -> bool:
+        """思考模型启发式识别（DeepSeek-R1/reasoner、通义 thinking、Kimi k3 等）。
+        思考模型常不支持 function calling，需要给模型和用户明确提示，避免假装执行工具。"""
+        llm = self.settings.get().get("llm", {})
+        m = str(llm.get("model", "")).lower()
+        return any(k in m for k in ("reasoner", "thinking", "r1", "-think", "k3", "k2.6", "o1", "o3"))
+
     async def chat(
         self,
         session_id: str,
@@ -116,13 +136,26 @@ class Agent:
         mode = self.settings.permission_mode()
         tools = [] if mode == "chat" else schemas()
 
-        # 从库里恢复历史上下文，避免重启失忆；有记忆摘要则注入为 system 消息
-        history = self.store.get_messages(session_id)
-        messages: list[dict] = []
+        # 组装上下文（顺序固定，前缀稳定以利提示缓存）：
+        #   固定角色 → 用户长期偏好 → 记忆摘要 → 历史 → 本条消息
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_FIXED}]
+        prefs = str(self.settings.get().get("user_prefs", "")).strip()
+        if prefs:
+            messages.append({"role": "system", "content": f"用户长期偏好：{prefs}"})
+        if tools and self._is_reasoning_model():
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "注意：你当前是思考模型。如果本环境无法通过 function calling 调用工具，"
+                        "请直接说明「当前模型不支持工具调用，建议换用支持工具的非思考模型」，不要假装执行。"
+                    ),
+                }
+            )
         summary = self.store.get_summary(session_id)
         if summary:
             messages.append({"role": "system", "content": f"此前对话摘要：{summary}"})
-        for m in history:
+        for m in self.store.get_messages(session_id):
             messages.append({"role": m["role"], "content": m["content"] or ""})
         messages.append({"role": "user", "content": message})
         self.store.add_message(session_id, "user", message)
@@ -228,7 +261,7 @@ class Agent:
         """给新会话生成标题：真实 LLM 一次小请求（≤14 字），失败回退截断首条消息。"""
         if self.mock:
             return self._llm().title(message)
-        llm = self.settings.get("llm", {})
+        llm = self.settings.get().get("llm", {})
         if not (llm.get("api_key") and llm.get("model") and llm.get("base_url")):
             return _fallback_title(message)
         try:
@@ -256,7 +289,7 @@ class Agent:
         recent = messages[-8:]
         if self.mock:
             return self._llm().summarize(recent)
-        llm = self.settings.get("llm", {})
+        llm = self.settings.get().get("llm", {})
         if not (llm.get("api_key") and llm.get("model") and llm.get("base_url")):
             return old or "（暂无）"
         try:

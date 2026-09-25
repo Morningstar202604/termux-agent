@@ -51,6 +51,8 @@ function applyEvent(msg: Msg, ev: ChatEvent): Msg {
             : p
         ),
       };
+    case "queued":
+      return { ...msg, done: true, queued: true };
     case "done":
       return { ...msg, done: true };
     case "error":
@@ -174,28 +176,29 @@ export default function App() {
 
   const stop = () => {
     abortRef.current?.abort();
+    // 停止：同时清空排队中的消息，并移除对应占位
+    sendQueueRef.current = [];
+    setMessages((prev) => prev.map((m) => (m.queued ? { ...m, done: true, error: "已停止" } : m)));
     void api.post("/api/stop", { session_id: sessionId }).catch(() => {});
   };
 
-  const send = async (text: string) => {
-    const t = text.trim();
-    if (!t || busy || !sessionId) return;
-    const aid = uid("a");
-    setMessages((prev) => [
-      ...prev,
-      { id: uid("u"), role: "user", parts: [{ type: "text", text: t }], done: true },
-      { id: aid, role: "assistant", parts: [], done: false },
-    ]);
-    setBusy(true);
-    setError("");
+  // 前端消息队列：同一会话连续发送时排队执行（服务端亦有队列作为 API 层保险）
+  const sendQueueRef = useRef<Array<{ text: string; aid: string }>>([]);
+  const runningRef = useRef(false);
+
+  const doRun = async (text: string, aid: string) => {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
       await api.sseChat(
         sessionId,
-        t,
+        text,
         (ev) => {
           if (ev.type === "session" && ev.session_id !== sessionId) setSessionId(ev.session_id);
+          // 开始产出时清除「排队中」标记
+          if (ev.type === "text" || ev.type === "tool_start" || ev.type === "thinking") {
+            setMessages((prev) => prev.map((m) => (m.id === aid ? { ...m, queued: false } : m)));
+          }
           setMessages((prev) => prev.map((m) => (m.id === aid ? applyEvent(m, ev) : m)));
         },
         ac.signal
@@ -211,10 +214,34 @@ export default function App() {
         );
       }
     } finally {
-      setBusy(false);
       abortRef.current = null;
+    }
+  };
+
+  const send = async (text: string) => {
+    const t = text.trim();
+    if (!t || !sessionId) return;
+    const aid = uid("a");
+    // 队列里已有在等/正在执行的请求时，新消息立即显示并排队
+    const queued = runningRef.current || sendQueueRef.current.length > 0;
+    setMessages((prev) => [
+      ...prev,
+      { id: uid("u"), role: "user", parts: [{ type: "text", text: t }], done: true },
+      { id: aid, role: "assistant", parts: [], done: false, queued },
+    ]);
+    sendQueueRef.current.push({ text: t, aid });
+    if (runningRef.current) return; // 正在跑，由循环消化队列
+    runningRef.current = true;
+    setBusy(true);
+    setError("");
+    while (sendQueueRef.current.length > 0) {
+      const item = sendQueueRef.current.shift()!;
+      await doRun(item.text, item.aid);
       void refreshSessions();
     }
+    runningRef.current = false;
+    setBusy(false);
+    abortRef.current = null;
   };
 
   const onNewSession = async () => {

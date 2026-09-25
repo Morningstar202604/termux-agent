@@ -82,10 +82,13 @@ async def write_file(path: str, content: str) -> dict:
         p = _resolve(path)
     except ValueError as e:
         return {"error": str(e)}
+    data = str(content or "")
+    if len(data.encode("utf-8", errors="replace")) > 1_000_000:
+        return {"error": "内容过大（>1MB），请分段写入"}
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(str(content or ""), encoding="utf-8")
-        return {"ok": True, "path": str(p), "bytes": len(str(content or ""))}
+        p.write_text(data, encoding="utf-8")
+        return {"ok": True, "path": str(p), "bytes": len(data)}
     except OSError as e:
         return {"error": f"写入失败：{e}"}
 

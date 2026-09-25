@@ -44,6 +44,12 @@ class MockLLM:
             ("剪贴板", "get_clipboard", {}),
             ("传感器", "list_sensors", {}),
             ("通知", "send_notification", {"title": "口袋Agent 测试通知", "message": "这是 mock 演示"}),
+            ("打电话", "make_call", {"number": "10086"}),
+            ("发短信", "send_sms", {"numbers": ["13800000000"], "text": "测试短信"}),
+            ("语音", "tts_speak", {"text": "你好，我是口袋 Agent"}),
+            ("拍照", "take_photo", {}),
+            ("WiFi", "get_wifi_info", {}),
+            ("wifi", "get_wifi_info", {}),
             ("工具", "run_shell", {"command": "echo 口袋Agent工具链路OK"}),
         ]
 

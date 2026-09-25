@@ -107,6 +107,7 @@ class Store:
 
     def delete_session(self, sid: str) -> bool:
         self.conn.execute("DELETE FROM messages WHERE session_id=?", (sid,))
+        self.conn.execute("DELETE FROM memory WHERE session_id=?", (sid,))
         cur = self.conn.execute("DELETE FROM sessions WHERE id=?", (sid,))
         self.conn.commit()
         return cur.rowcount > 0
@@ -114,6 +115,7 @@ class Store:
     def clear_all(self) -> None:
         self.conn.execute("DELETE FROM messages")
         self.conn.execute("DELETE FROM sessions")
+        self.conn.execute("DELETE FROM memory")
         self.conn.commit()
 
     # ---------- 消息 ----------

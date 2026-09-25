@@ -71,6 +71,11 @@ class ApprovalCenter:
         gate["event"].set()
         return True
 
+    def forget(self, session_id: str) -> None:
+        """会话删除时清理：未决审批 + 「始终允许」记忆。"""
+        self._gates = {k: v for k, v in self._gates.items() if k[0] != session_id}
+        self._always.pop(session_id, None)
+
 
 # ---------- 应用 ----------
 settings_mgr = Settings()
@@ -129,14 +134,28 @@ def create_app() -> FastAPI:
             return True
         return False
 
+    async def _heartbeat(queue: asyncio.Queue) -> None:
+        """SSE 保活：每 15s 发一条注释帧（前端会自动忽略）。"""
+        try:
+            while True:
+                await asyncio.sleep(15)
+                queue.put_nowait({"_hb": True})
+        except asyncio.CancelledError:
+            pass
+
     # ---------- 鉴权（局域网开启后强制） ----------
     def check_token(request: Request) -> None:
+        import hmac
+
         s = settings_mgr.get()
         token = str(s.get("server", {}).get("token", ""))
         if not token:
             return
         auth = request.headers.get("authorization", "")
-        if auth != f"Bearer {token}":
+        if not auth.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="需要访问令牌")
+        given = auth[len("Bearer "):].strip()
+        if not hmac.compare_digest(given, token):
             raise HTTPException(status_code=401, detail="需要访问令牌")
 
     # ---------- API ----------
@@ -173,18 +192,28 @@ def create_app() -> FastAPI:
             raise HTTPException(409, "上一轮回复还在进行中，请稍候再发")
 
         queue: asyncio.Queue = asyncio.Queue()
+        # 先注册再启动任务，避免 run_agent 首帧 emit 时 runs 尚未就绪的竞态
+        runs[session_id] = {"task": None, "queue": queue}
         task = asyncio.create_task(run_agent(session_id, message))
-        runs[session_id] = {"task": task, "queue": queue}
+        runs[session_id]["task"] = task
 
         async def sse():
             # 首帧告知会话 ID（新建会话时前端需要）
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id}, ensure_ascii=False)}\n\n"
             try:
-                while True:
-                    ev = await queue.get()
-                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
-                    if ev.get("type") in ("done", "error"):
-                        break
+                # 心跳：审批等待可能长达 120s，移动网络/代理需要保活
+                hb = asyncio.get_running_loop().create_task(_heartbeat(queue))
+                try:
+                    while True:
+                        ev = await queue.get()
+                        if ev.get("_hb"):
+                            yield ": ping\n\n"  # SSE 注释帧，保活且不产生数据事件
+                            continue
+                        yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                        if ev.get("type") in ("done", "error"):
+                            break
+                finally:
+                    hb.cancel()
             except asyncio.CancelledError:
                 cancel_run(session_id)
                 raise
@@ -234,7 +263,10 @@ def create_app() -> FastAPI:
         if store is None:
             raise HTTPException(503)
         cancel_run(sid)
-        return {"ok": store.delete_session(sid)}
+        ok = store.delete_session(sid)
+        if ok:
+            approval.forget(sid)  # 清理该会话的"始终允许"记忆与未决审批
+        return {"ok": ok}
 
     @app.get("/api/sessions/{sid}/messages", dependencies=[Depends(check_token)])
     async def session_messages(sid: str):
@@ -342,9 +374,11 @@ def main():
     host = args.host or ("0.0.0.0" if args.lan else "127.0.0.1")
     if args.lan:
         s = settings_mgr.get()
-        if not s.get("server", {}).get("token"):
-            print("警告：--lan 已开启但未设置访问令牌，局域网内任何设备都可调用本服务！")
-            print("请先调用 PUT /api/settings 设置 server.token，或使用 --home 指定配置目录。")
+        token = str(s.get("server", {}).get("token", "")).strip()
+        if not token:
+            print("✗ 安全策略：--lan 必须配置访问令牌才能启动（否则局域网内任何设备都能调用本服务）。")
+            print("  请先设置 server.token（启动本机模式后，在页面「设置 → 局域网访问令牌」填入），再重试。")
+            raise SystemExit(1)
 
     import uvicorn
 

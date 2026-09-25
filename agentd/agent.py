@@ -25,6 +25,12 @@ Emit = Callable[[dict], Awaitable[None]]
 AskApproval = Callable[[str, str, str, str], Awaitable[str]]  # (tool_call_id, name, summary, risk) -> allow|deny
 
 
+def _fallback_title(message: str) -> str:
+    """回退标题：取首条消息前 14 字（与 mock 规则一致）。"""
+    text = " ".join(str(message).split())
+    return text[:14] + ("…" if len(text) > 14 else "")
+
+
 def _trim(messages: list[dict], maxn: int = MAX_CONTEXT) -> list[dict]:
     """裁剪早期消息，保证 tool 消息永远跟着它的 assistant tool_call 一起被裁掉；
     第一条 system（记忆摘要/角色设定）永远保留。"""
@@ -188,8 +194,12 @@ class Agent:
                 await emit({"type": "tool_start", "id": tid, "name": name, "input": args})
 
                 decision = "allow"
-                if tool is not None and ask_approval is not None:
-                    if permissions.should_ask(tool.risk, mode):
+                if ask_approval is not None:
+                    if tool is None:
+                        # 模型幻觉出的未知工具：approve 模式下同样要求用户确认，不静默执行
+                        if mode != "auto":
+                            decision = await ask_approval(tid, name, "未知工具，请确认是否放行（通常应拒绝）", "danger")
+                    elif permissions.should_ask(tool.risk, mode):
                         summary = tool.summary or name
                         decision = await ask_approval(tid, name, summary, tool.risk)
 
@@ -219,6 +229,8 @@ class Agent:
         if self.mock:
             return self._llm().title(message)
         llm = self.settings.get("llm", {})
+        if not (llm.get("api_key") and llm.get("model") and llm.get("base_url")):
+            return _fallback_title(message)
         try:
             client = self._llm()
             resp = await client.chat.completions.create(
@@ -235,7 +247,7 @@ class Agent:
                 return title
         except Exception:  # noqa: BLE001 —— 标题失败不阻塞聊天
             pass
-        return self._llm().title(message)
+        return _fallback_title(message)
 
     # ---------- 记忆摘要 ----------
     async def _summarize(self, session_id: str, messages: list[dict]) -> str:
@@ -245,6 +257,8 @@ class Agent:
         if self.mock:
             return self._llm().summarize(recent)
         llm = self.settings.get("llm", {})
+        if not (llm.get("api_key") and llm.get("model") and llm.get("base_url")):
+            return old or "（暂无）"
         try:
             client = self._llm()
             text = "\n".join(
@@ -261,5 +275,5 @@ class Agent:
             )
             s = (resp.choices[0].message.content or "").strip()
             return s[:400] if s else old or "（空摘要）"
-        except Exception:  # noqa: BLE001
-            return self._llm().summarize(recent)
+        except Exception:  # noqa: BLE001 —— 摘要失败不阻塞主流程，保留旧摘要
+            return old or "（空摘要）"

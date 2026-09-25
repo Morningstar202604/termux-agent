@@ -1,5 +1,23 @@
 // agentd API 客户端：REST + SSE 流式。
 
+const TOKEN_KEY = "pa-token";
+
+/** 局域网令牌：设置面板保存 server.token 时同步写入；请求统一携带。 */
+export function getToken(): string {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+export function setToken(token: string) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+function headers(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...extra };
+  const t = getToken();
+  if (t) h["Authorization"] = `Bearer ${t}`;
+  return h;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -76,13 +94,13 @@ async function parse<T>(res: Response): Promise<T> {
 
 export const api = {
   async get<T>(path: string): Promise<T> {
-    return parse<T>(await fetch(path, { cache: "no-store" }));
+    return parse<T>(await fetch(path, { cache: "no-store", headers: headers() }));
   },
   async post<T>(path: string, body?: unknown): Promise<T> {
     return parse<T>(
       await fetch(path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers({ "Content-Type": "application/json" }),
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     );
@@ -91,13 +109,13 @@ export const api = {
     return parse<T>(
       await fetch(path, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: headers({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       })
     );
   },
   async del<T>(path: string): Promise<T> {
-    return parse<T>(await fetch(path, { method: "DELETE" }));
+    return parse<T>(await fetch(path, { method: "DELETE", headers: headers() }));
   },
 
   /** POST /api/chat 并逐行消费 SSE，事件交给 onEvent。 */
@@ -109,7 +127,7 @@ export const api = {
   ): Promise<void> {
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: headers({ "Content-Type": "application/json" }),
       body: JSON.stringify({ session_id: sessionId, message }),
       signal,
     });

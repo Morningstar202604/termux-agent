@@ -142,7 +142,12 @@ export default function App() {
     setError("");
     try {
       const msgs = await api.get<StoredMessage[]>(`/api/sessions/${sid}/messages`);
-      setMessages(restore(msgs));
+      // 竞态保护：期间用户已切到别的会话，则丢弃这次过期响应
+      setSessionId((cur) => {
+        if (cur !== sid) return cur;
+        setMessages(restore(msgs));
+        return cur;
+      });
     } catch {
       /* 会话可能已删 */
     }

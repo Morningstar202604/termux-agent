@@ -31,10 +31,19 @@ async def _run(args: list[str], input_text: str | None = None, timeout: int = 20
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    out, err = await asyncio.wait_for(
-        proc.communicate(input_text.encode() if input_text is not None else None),
-        timeout=timeout,
-    )
+    try:
+        out, err = await asyncio.wait_for(
+            proc.communicate(input_text.encode() if input_text is not None else None),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        # 超时必须杀掉子进程，否则变成僵尸进程继续在后台跑
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        out, err = await proc.communicate()
+        raise
     return proc.returncode or 0, out.decode("utf-8", errors="replace").strip(), err.decode("utf-8", errors="replace").strip()
 
 

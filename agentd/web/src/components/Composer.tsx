@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { IconSend, IconStop } from "./icons";
 
 export function Composer({
   busy,
@@ -14,6 +15,16 @@ export function Composer({
   error: string;
 }) {
   const [text, setText] = useState("");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // 输入框随内容自动增高（最多 6 行），发送/清空后复原
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+  }, [text]);
+
   const submit = () => {
     if (busy || !text.trim()) return;
     onSend(text);
@@ -24,6 +35,7 @@ export function Composer({
       {error && <div className="composer-err">{error}</div>}
       <div className="composer-box">
         <textarea
+          ref={taRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -37,9 +49,7 @@ export function Composer({
         />
         {busy ? (
           <button className="send stop" onClick={onStop} title="停止" aria-label="停止">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
+            <IconStop size={14} />
           </button>
         ) : (
           <button
@@ -49,10 +59,7 @@ export function Composer({
             title="发送"
             aria-label="发送"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 2 11 13" />
-              <path d="M22 2 15 22 11 13 2 9l20-7z" />
-            </svg>
+            <IconSend size={16} />
           </button>
         )}
       </div>

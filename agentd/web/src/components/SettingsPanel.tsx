@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, type AppSettings, type Provider, type ToolInfo } from "../api";
+import { api, setToken, type AppSettings, type Provider, type ToolInfo } from "../api";
 import type { ThemePref } from "../theme";
 import { IconClose } from "./icons";
 
@@ -110,6 +110,8 @@ export function SettingsPanel({
           approval_timeout: Number(form.server?.approval_timeout ?? 120),
         },
       });
+      // 局域网令牌同步到本地，后续请求自动携带
+      setToken((form.server?.token ?? "").trim());
       setMsg("已保存");
       setTimeout(onClose, 800);
     } catch (e) {

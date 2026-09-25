@@ -114,6 +114,10 @@ class Settings:
     def save(self, patch: dict) -> dict:
         self.data = self._merge(self.data, patch)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.path.parent, 0o700)  # 数据目录 700（含数据库）
+        except OSError:
+            pass
         self.path.write_text(
             json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -132,8 +136,11 @@ class Settings:
 
 
 def mask_key(key: str) -> str:
+    """打码 API Key：短 key（≤8）全遮；中等长度保留首尾 2 位；长 key 保留首尾 4 位。"""
     if not key:
         return ""
-    if len(key) <= 8:
-        return "*" * len(key)
-    return key[:4] + "****" + key[-4:]
+    n = len(key)
+    if n <= 8:
+        return "*" * n
+    head = tail = 4 if n > 16 else 2
+    return key[:head] + "*" * (n - head - tail) + key[-tail:]

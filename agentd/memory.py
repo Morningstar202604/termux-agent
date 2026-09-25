@@ -7,6 +7,7 @@ sessions（会话） / messages（消息） / memory（长期记忆，M2 启用�
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 import uuid
@@ -25,6 +26,21 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._migrate()
+        self._secure_files()
+
+    def _secure_files(self) -> None:
+        """数据含会话隐私（短信/定位等），与 config.json 同级别保护：
+        目录 700，数据库及其 WAL/SHM 文件 600，其他用户不可读。"""
+        try:
+            os.chmod(self.path.parent, 0o700)
+        except OSError:
+            pass
+        for f in (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm")):
+            try:
+                if f.exists():
+                    os.chmod(f, 0o600)
+            except OSError:
+                pass
 
     def _migrate(self) -> None:
         c = self.conn

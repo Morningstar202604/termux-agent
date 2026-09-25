@@ -137,6 +137,12 @@ class JobStore:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def delete_by_session(self, session_id: str) -> int:
+        """删除某会话下的全部任务（会话被删时级联清理）。"""
+        cur = self._conn.execute("DELETE FROM jobs WHERE session_id=?", (session_id,))
+        self._conn.commit()
+        return cur.rowcount
+
     def close(self) -> None:
         try:
             self._conn.close()
@@ -255,6 +261,17 @@ class SchedulerService:
             pass
         self._job_ids.discard(jid)
         return self._store.delete(jid)
+
+    def delete_by_session(self, session_id: str) -> int:
+        """删除某会话下全部任务（会话删除级联）：停内存调度 + 删库。"""
+        for j in self._store.list():
+            if j["session_id"] == session_id:
+                try:
+                    self._sched.remove_job(j["id"])
+                except Exception:  # noqa: BLE001
+                    pass
+                self._job_ids.discard(j["id"])
+        return self._store.delete_by_session(session_id)
 
     def list(self) -> list[dict]:
         out = []

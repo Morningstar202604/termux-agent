@@ -49,6 +49,7 @@ class MockLLM:
             ("发短信", "send_sms", {"numbers": ["13800000000"], "text": "测试短信"}),
             ("发条短信", "send_sms", {"numbers": ["13800000000"], "text": "测试短信"}),
             ("语音", "tts_speak", {"text": "你好，我是口袋 Agent"}),
+            ("离线朗读", "tts_offline", {"text": "明天早上八点提醒我开会"}),
             ("拍照", "take_photo", {}),
             ("WiFi", "get_wifi_info", {}),
             ("wifi", "get_wifi_info", {}),

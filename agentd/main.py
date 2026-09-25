@@ -28,7 +28,7 @@ from .memory import Store
 from .notify import notify
 from .tools import Tool, register
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 APP_NAME = "口袋 Agent"
 
 DIST = Path(__file__).parent / "web" / "dist"
@@ -397,6 +397,8 @@ def create_app() -> FastAPI:
             cs = CheckpointStore(settings_mgr.path.parent / "checkpoints.db")
             cs.delete_session(sid)
             cs.close()
+            # 级联清理该会话下的定时任务（内存调度 + 持久化库）
+            scheduler_svc.delete_by_session(sid)
         return {"ok": ok}
 
     @app.get("/api/sessions/{sid}/messages", dependencies=[Depends(check_token)])
@@ -504,7 +506,7 @@ def create_app() -> FastAPI:
 
         out: dict = {
             "app": "口袋 Agent",
-            "version": "0.1.0",
+            "version": VERSION,
             "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
             "settings": {
                 "permission_mode": settings_mgr.get().get("permission_mode", "approve"),

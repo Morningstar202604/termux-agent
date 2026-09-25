@@ -42,6 +42,10 @@ class CheckpointStore:
 
     def __init__(self, db_path: str | Path):
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            os.chmod(db_path, 0o600)  # 备份记录仅本人可读
+        except OSError:
+            pass
         self.conn.execute(
             """CREATE TABLE IF NOT EXISTS checkpoints (
                 id TEXT PRIMARY KEY,

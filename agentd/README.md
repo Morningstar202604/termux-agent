@@ -2,17 +2,19 @@
 
 重构后的核心：**Python 单进程**（FastAPI + agent 循环），替代旧实现的
 goose(Rust) + Node 双服务器。前端为 `web/`（Vite + React + TS），构建产物 `web/dist`
-直接由 agentd 托管，手机端零 Node 依赖。
+直接由 agentd 托管，手机端零 Node 依赖。版本 v0.2.0。
 
 ## 架构
 
 ```
 浏览器 / APK 壳 ──HTTP+SSE──▶ agentd (FastAPI, :8787, 默认仅本机)
-                                 ├─ Agent 循环（openai 兼容 function calling）
-                                 ├─ 工具层：shell / files / phone(termux-api)
-                                 ├─ 审批门（服务端强制，写/危险操作需确认）
-                                 └─ SQLite（会话/消息，重启不丢上下文）
-                                  └─▶ LLM API（豆包/DeepSeek/千问/Kimi/智谱/硅基流动…）
+                                 ├─ Agent 循环（openai 兼容 function calling，国产模型路由分流）
+                                 ├─ 工具层（31 个）：phone(termux-api) / files / system / voice / mcp
+                                 ├─ 审批门（服务端强制，写/危险操作需确认；超时自动拒绝）
+                                 ├─ SQLite（会话/消息/记忆/定时任务/撤销备份，重启不丢）
+                                 ├─ 调度器（APScheduler：cron/间隔/一次性/条件触发，jobs.db 持久化）
+                                 ├─ 通知（termux-notification 四态进度，缺 termux-api 自动降级）
+                                 └─▶ LLM API（豆包/DeepSeek/千问/Kimi/智谱/硅基流动…）
 ```
 
 ## 运行
@@ -23,8 +25,10 @@ python -m agentd.main --mock --port 8787     # 离线演示，不消耗 API
 python -m agentd.main --port 8787            # 真实模式（先在页面配置 LLM）
 
 # 手机（Termux）
-bash termux/install.sh
-bash termux/start.sh
+bash termux/install.sh       # 一键安装（依赖 + 数据目录 700）
+bash termux/start.sh         # 启动
+bash termux/uninstall.sh     # 卸载（--keep-data 保留数据）
+# 开机自启：见 termux/boot.sh（Termux:Boot 插件）
 ```
 
 ## API
@@ -33,111 +37,61 @@ bash termux/start.sh
 |---|---|---|
 | POST | `/api/chat` | `{session_id?, message}` → SSE 事件流 |
 | POST | `/api/approval` | `{session_id, tool_call_id, decision: allow_once\|allow_always\|deny}` |
-| POST | `/api/stop` | 中断当前回复 |
+| POST | `/api/undo` | `{session_id, tool_call_id}` 撤销文件类危险操作 |
+| POST | `/api/stop` | 中断当前回复并清空排队 |
 | GET/POST/DELETE | `/api/sessions[/{id}]` | 会话管理 |
+| PUT | `/api/sessions/{id}` | 会话重命名 |
 | GET | `/api/sessions/{id}/messages` | 会话消息历史 |
 | GET/PUT | `/api/settings` | 设置（GET 时 API Key 打码） |
 | GET | `/api/providers` | 国产 LLM 厂商预设 |
-| GET | `/api/tools` | 工具清单与风险分级 |
+| GET | `/api/tools` | 工具清单（含分组与风险分级） |
+| GET/POST/PUT/DELETE | `/api/jobs[/{id}]` | 定时/条件触发任务 |
+| GET | `/api/mcp` | MCP 客户端配置与连接状态 |
+| GET | `/api/export` | 导出全部会话+配置（脱敏）JSON 备份 |
 | GET | `/api/health` | 健康检查 |
 
 SSE 事件：`session` → `thinking`/`text`（流式）→ `tool_start` → `approval`（可选）→
-`tool_update` → `done`/`error`。
+`tool_update`（可带 `undoable`）→ `queued`（排队）→ `done`/`error`，15s 心跳保活。
 
-## 安全设计（与旧实现的关键差异）
+## 安全设计
 
 - 默认只监听 `127.0.0.1`；`--lan` 时所有 `/api/*` 校验 `Authorization: Bearer <token>`，
-  **未配置令牌时 `--lan` 直接拒绝启动**（不再出现"开了局域网却没鉴权"的裸奔状态）；
-- 前端在「设置」里保存局域网令牌后自动写入 localStorage，所有请求自动携带
-  `Authorization` 头——`--lan` 模式下自己的页面开箱可用；
-- 工具按危险度分级：`safe`（只读，免确认）/ `write` / `danger`。
-  `approve` 模式下后两类必须用户在界面确认，服务端不再自动放行；
-  模型幻觉出的**未知工具同样要求确认**（按 danger 处理），不会静默执行；
-- 审批超时可配（`server.approval_timeout`，默认 120s），超时自动拒绝并回填
-  「审批超时，已自动拒绝」；SSE 长连接带 15s 心跳保活；
-- API Key 只存本地 `config.json`（0600），任何接口不回传明文；
-- shell 工具输出截断、超时限制；文件工具路径白名单（仅主目录与存储目录），
-  写入限 1MB；termux 子进程超时强制 kill，不留僵尸进程；
-- 删除会话时级联清理消息、记忆摘要与「始终允许」审批记忆。
+  **未配置令牌时 `--lan` 直接拒绝启动**；
+- 工具按危险度分级：`safe` / `write` / `danger`，`approve` 模式下后两类必须用户确认；
+  模型幻觉出的**未知工具同样要求确认**（按 danger），不会静默执行；审批超时自动拒绝；
+- **危险操作可回滚（checkpoint/undo）**：写文件覆盖、删文件执行前自动备份到
+  `checkpoints/`（目录 700、文件 600），记录落 SQLite；对话里一键撤销，服务重启仍有效；
+- API Key 只存本地 `config.json`（0600），任何接口不回传明文；导出备份也不含密钥；
+- shell 输出截断、超时限制；文件路径白名单（仅主目录与存储目录）、写入限 1MB；
+  子进程超时强制 kill；删除会话级联清理消息/记忆/审批记忆/撤销记录/定时任务；
+- 数据目录、数据库、备份目录均为 700/600，仅本人可读。
 
-## 工具（M2：30 个，全部经 termux-api）
+## 工具（31 个，按分组）
 
-### 系统
-| 工具 | 说明 | 风险 |
+| 分组 | 工具 | 风险 |
 |---|---|---|
-| `get_battery` | 电池电量/充电状态 | safe |
-| `send_notification` | 通知栏消息 | write |
-| `show_toast` | 屏幕悬浮提示 | write |
-| `vibrate` | 震动 | write |
-| `set_torch` | 手电筒开关 | write |
-| `get_volume` / `set_volume` | 查询/设置音量 | safe / write |
-| `set_brightness` | 屏幕亮度 | write |
+| 手机能力（25） | get_battery / send_notification / show_toast / vibrate / set_torch / get_volume / set_volume / set_brightness / send_sms / read_sms / make_call / get_location / get_clipboard / set_clipboard / list_sensors / read_sensor / tts_speak / speech_to_text / get_wifi_info / scan_wifi / set_wifi / take_photo / share_text / download_file / open_target | 只读/需确认/危险分级 |
+| 文件（4） | list_dir / read_file（只读）、write_file（需确认）、delete_file（危险，可撤销） | |
+| 系统（1） | run_shell（危险，任意命令需确认） | |
+| 语音（1） | tts_offline（离线本地 TTS，可选，见 termux/voice.md） | 只读 |
+| MCP 扩展 | `mcp__服务__工具`（可选接入，默认需审批） | |
 
-### 通信
-| 工具 | 说明 | 风险 |
-|---|---|---|
-| `send_sms` | 发短信（多号码） | write |
-| `read_sms` | 读最近短信（隐私，需确认） | write |
-| `make_call` | 拨打电话 | danger |
+termux-api 未安装时返回结构化错误，由模型转告执行 `pkg install termux-api`。
 
-### 隐私 / 剪贴板
-| 工具 | 说明 | 风险 |
-|---|---|---|
-| `get_location` | 当前位置（隐私，需确认） | write |
-| `get_clipboard` / `set_clipboard` | 读写剪贴板 | safe / write |
+## 能力进度
 
-### 传感器 / 语音
-| 工具 | 说明 | 风险 |
-|---|---|---|
-| `list_sensors` / `read_sensor` | 传感器列表/读数 | safe |
-| `tts_speak` | TTS 语音朗读 | write |
-| `speech_to_text` | 语音转文字 | write |
-
-### 网络 / 媒体 / 文件
-| 工具 | 说明 | 风险 |
-|---|---|---|
-| `get_wifi_info` / `scan_wifi` | WiFi 信息/扫描 | safe |
-| `set_wifi` | WiFi 开关 | write |
-| `take_photo` | 拍照保存 | write |
-| `share_text` | 系统分享面板 | write |
-| `download_file` | 下载文件 | write |
-| `open_target` | 打开文件/链接 | write |
-
-另有文件类与 shell：`list_dir`/`read_file`（safe）、`write_file`（write）、
-`delete_file`/`run_shell`（danger）——合计 30 个。
-termux-api 未安装时返回结构化错误，由模型转告用户执行 `pkg install termux-api`。
-
-## M2 新增能力
-
-- **会话自动命名**：新会话首条消息自动生成 ≤14 字标题（真实 LLM 一次小请求，失败回退截断）；
-- **记忆摘要**：每轮结束后滚动生成会话摘要存 `memory` 表，下一轮作为 system 消息注入，
-  长对话不丢前情（`_trim` 裁剪时保护 system 消息）；
-- **mock 模式自然语言触发**：消息含 电池/短信/定位/剪贴板/传感器/通知/工具 等词即走对应工具链路；
-- **设置面板「手机能力」清单**：展示 30 个工具与风险分级（`GET /api/tools`）。
-
-## M3 美术重构（品牌 + 双主题）
-
-- **品牌**：口袋 Logo（渐变圆角方块 + 白色∪口袋 + 智能点），图标源
-  `web/public/icons/icon.svg`，导出 48/96/192/512/32 PNG；
-- **PWA**：`manifest.webmanifest`（name「口袋 Agent」、standalone、portrait、
-  theme/background #0f1115、192 any + 96 maskable），`index.html` 挂 manifest 与 SVG favicon；
-- **明暗双主题**：`styles.css` 设计 token 化（`html[data-theme=dark|light]`，默认跟随系统），
-  `theme.ts` 持久化到 localStorage（key `pa-theme`，值 dark/light/system），`main.tsx`
-  首帧 applyTheme 防闪烁，App 监听系统主题变化（system 模式）；
-- **图标库**：`components/icons.tsx` 内联 SVG（会话/设置/发送/停止/删除/关闭/加减/电池/文件夹/通知/剪贴板/chevron），
-  替换全部文字符号与内联路径；
-- **设置面板分组**：外观（主题三卡选择）/ 模型 / 权限与安全 / 手机能力。
-
-## M4 PWA / APK（安装形态）
-
-- **Service Worker 离线壳**（`web/public/sw.js`）：install 时预缓存 app shell 并动态提取
-  `/assets/*` 与 `/icons/*`，离线秒开完整 UI；`/api/*` 一律网络直连不缓存；
-  页面导航离线回退 index.html，资源请求失败给 504（绝不拿 HTML 冒充 JS）。
-- **PWA 安装**（推荐，零构建）：手机浏览器打开 `http://127.0.0.1:8787` →
-  「添加到主屏幕」，独立全屏运行，与 APK 体验一致。
-- **WebView 壳 APK**（可选，`termux/apk-shell/`）：30 行 Java 原生 WebView 壳工程
-  （零第三方依赖，不引 Capacitor），启动即加载本机服务；网络配置仅放行
-  127.0.0.1/localhost 明文。构建步骤见 `termux/make-apk.md`。
+- **M2 记忆**：会话自动命名（≤14 字）、滚动记忆摘要注入下一轮；
+- **M3 美术**：口袋品牌 Logo、明暗双主题（跟随系统）、内联图标库、PWA manifest；
+- **M4 安装形态**：Service Worker 离线壳（导航 network-first）+ WebView 壳 APK 模板（零依赖）；
+- **M5 安全加固**：权限 600/700、短 key 打码、删除级联、真机矩阵（termux/device-matrix.md）；
+- **P0 先进方案**：固定 system 前缀（提示缓存命中约 1 折）、思考模型识别分流
+  （reasoner 类不假装执行工具）、同一会话连发排队自动执行、长期偏好 user_prefs
+  注入系统提示、审批时自动展开思考链；
+- **P1 进阶能力**：定时/条件触发（APScheduler + 自管持久化，前端面板）、跨会话相关
+  记忆检索、通知栏四态进度、工具参数 pydantic 校验、MCP 最小客户端（零依赖 stdio
+  JSON-RPC）、sherpa-onnx 离线语音（可选）；
+- **基础设施轮**：checkpoint/undo、工具分组展示、会话重命名、Termux 开机自启 +
+  安装/卸载脚本、数据导出备份。
 
 ## 真实模型联调
 
@@ -160,5 +114,5 @@ npm run dev        # 开发模式（/api 代理到 8787）
 npm run build      # 产出 dist/，agentd 直接托管
 ```
 
-> 说明：M1/M2 前端用纯 CSS + 设计 token（零构建风险、更轻），未引入 Tailwind；
-> M3 延续该路线，仅新增明暗 token 集与内联图标库，无额外运行时依赖。
+> 前端零额外运行时依赖（React + marked + dompurify），CSS 设计 token 化，
+> 未引入 Tailwind/组件库，保持轻量。

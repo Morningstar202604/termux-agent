@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type ChatEvent, type Session, type StoredMessage } from "./api";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
-import { IconGear, IconSessions } from "./components/icons";
+import { IconGear, IconSessions, IconTimer } from "./components/icons";
 import { MessageItem } from "./components/MessageItem";
 import { PocketLogo } from "./components/PocketLogo";
 import { SessionList } from "./components/SessionList";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { TimerPanel } from "./components/TimerPanel";
 import { getThemePref, setThemePref, type ThemePref } from "./theme";
 import { uid, type Msg, type Part, type ToolPart } from "./types";
 
@@ -116,6 +117,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [showSessions, setShowSessions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTimers, setShowTimers] = useState(false);
   const [theme, setTheme] = useState<ThemePref>(getThemePref);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -301,6 +303,9 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className={`pill ${ready ? "ok" : "warn"}`}>{ready ? "已就绪" : "未配置"}</span>
+          <button className="icon-btn" onClick={() => setShowTimers(true)} title="定时任务" aria-label="定时任务">
+            <IconTimer />
+          </button>
           <button className="icon-btn" onClick={() => setShowSettings(true)} title="设置" aria-label="设置">
             <IconGear />
           </button>
@@ -345,6 +350,7 @@ export default function App() {
           }}
         />
       )}
+      {showTimers && <TimerPanel onClose={() => setShowTimers(false)} />}
     </div>
   );
 }

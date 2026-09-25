@@ -137,7 +137,7 @@ class Agent:
         tools = [] if mode == "chat" else schemas()
 
         # 组装上下文（顺序固定，前缀稳定以利提示缓存）：
-        #   固定角色 → 用户长期偏好 → 记忆摘要 → 历史 → 本条消息
+        #   固定角色 → 用户长期偏好 → 相关历史记忆 → 记忆摘要 → 历史 → 本条消息
         messages: list[dict] = [{"role": "system", "content": SYSTEM_FIXED}]
         prefs = str(self.settings.get().get("user_prefs", "")).strip()
         if prefs:
@@ -152,6 +152,11 @@ class Agent:
                     ),
                 }
             )
+        # P1：跨会话相关记忆（用户问的与新任务相关的旧事）
+        related = self.store.search_memories(message, limit=3, exclude_session=session_id)
+        if related:
+            rel_text = "\n".join(f"· {m['content'][:160]}" for m in related)
+            messages.append({"role": "system", "content": f"与此相关的历史记忆：\n{rel_text}"})
         summary = self.store.get_summary(session_id)
         if summary:
             messages.append({"role": "system", "content": f"此前对话摘要：{summary}"})

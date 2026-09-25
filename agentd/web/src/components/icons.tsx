@@ -66,6 +66,14 @@ export const IconGear = (p: P) => (
   </Svg>
 );
 
+export const IconTimer = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="13" r="8" />
+    <path d="M12 9v4l2.5 2.5" />
+    <path d="M9 2h6" />
+  </Svg>
+);
+
 export const IconSend = (p: P) => (
   <Svg {...p}>
     <path d="M22 2 11 13" />

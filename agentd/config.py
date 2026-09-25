@@ -73,7 +73,8 @@ DEFAULTS = {
     },
     # auto = 全放行（不推荐） | approve = 写操作与危险操作需确认（推荐） | chat = 纯聊天（不调用工具）
     "permission_mode": "approve",
-    "server": {"allow_lan": False, "token": "", "approval_timeout": 120},
+    # mcp：可选接入的 MCP 服务器 [{name, command, args}]（零依赖 stdio 客户端）
+    "server": {"allow_lan": False, "token": "", "approval_timeout": 120, "mcp": []},
     # 用户长期偏好：跨会话注入 system（存在本机，零依赖）
     "user_prefs": "",
 }

@@ -96,9 +96,9 @@ ss = req("GET", "/api/sessions")
 names = [x.get("title", "") for x in ss if isinstance(x, dict)]
 check("会话自动命名", any("电池" in n or "电量" in n for n in names), str(names)[:80])
 
-# 6. 工具清单 30 项
+# 6. 工具清单（31 项：30 内建 + tts_offline 离线语音）
 tools = req("GET", "/api/tools")
-check("工具清单 30 项", tools.get("count", 0) == 30, str(tools.get("count")))
+check("工具清单 31 项", tools.get("count", 0) == 31, str(tools.get("count")))
 
 print(f"\n结果: {len(passed)} 通过 / {len(failed)} 失败")
 sys.exit(1 if failed else 0)

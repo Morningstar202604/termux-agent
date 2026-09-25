@@ -186,6 +186,49 @@ class Store:
         ).fetchone()
         return r["content"] if r else None
 
+    # ---------- 相关历史记忆（P1：跨会话回忆） ----------
+    def search_memories(self, query: str, limit: int = 3, exclude_session: str | None = None) -> list[dict]:
+        """按关键词检索此前对话摘要（SQLite 原生 LIKE，零新依赖）。
+
+        关键词提取：英文/数字词（>2 位）+ 中文按标点切块（>1 字）。
+        数据量小（每会话一条摘要），LIKE 足够快；FTS5/sqlite-vec 留作可选扩展。
+        """
+        words = self._keywords(query)
+        if not words:
+            return []
+        conds, args = [], []
+        for w in words:
+            conds.append("content LIKE ?")
+            args.append(f"%{w}%")
+        if exclude_session:
+            conds.append("session_id != ?")
+            args.append(exclude_session)
+        rows = self.conn.execute(
+            f"SELECT session_id, content, created_at FROM memory WHERE kind='summary' AND ({' OR '.join(conds)}) ORDER BY created_at DESC LIMIT ?",
+            (*args, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def _keywords(text: str, max_words: int = 8) -> list[str]:
+        import re
+
+        words: list[str] = []
+        # 英文/数字词
+        words += [w.lower() for w in re.findall(r"[A-Za-z0-9]{2,}", text or "")]
+        # 中文：按非中文标点切块，取 2 字以上片段
+        cn = re.findall(r"[\u4e00-\u9fff]{2,}", text or "")
+        words += [c for c in cn if c not in words]
+        # 去重 + 限长
+        seen, out = set(), []
+        for w in words:
+            if w not in seen and len(w) <= 20:
+                seen.add(w)
+                out.append(w)
+            if len(out) >= max_words:
+                break
+        return out
+
     def close(self) -> None:
         try:
             self.conn.close()

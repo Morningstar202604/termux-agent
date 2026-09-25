@@ -264,6 +264,36 @@ export function SettingsPanel({
           </div>
         </div>
 
+        {/* MCP 服务器（可选接入） */}
+        <div className="group">
+          <p className="group-title">MCP 服务器（可选）</p>
+          <div className="field">
+            <label>接入列表（每行一个：名称 | 启动命令 | 参数）</label>
+            <textarea
+              rows={3}
+              value={(form.server?.mcp ?? [])
+                .map((m) => [m.name, m.command, ...(m.args || [])].join(" | "))
+                .join("\n")}
+              onChange={(e) => {
+                const rows = e.target.value
+                  .split("\n")
+                  .map((l) => l.trim())
+                  .filter(Boolean)
+                  .map((l) => {
+                    const [name = "", command = "", ...rest] = l.split("|").map((x) => x.trim());
+                    return { name: name || "mcp", command, args: rest };
+                  })
+                  .filter((m) => m.command);
+                setForm((f) => (f ? { ...f, server: { ...f.server, mcp: rows } } : f));
+              }}
+              placeholder={"本地demo | python3 | tests/mcp_demo_server.py\n文件系统 | npx | -y @modelcontextprotocol/server-filesystem /sdcard"}
+            />
+            <p className="hint">
+              MCP 是通用工具协议（Linux 基金会托管）。每行一个：名称 | 命令 | 参数。保存重启后自动连接，其工具会出现在「手机能力」里（默认需审批）。
+            </p>
+          </div>
+        </div>
+
         {/* 长期偏好（跨会话记忆） */}
         <div className="group">
           <p className="group-title">长期偏好</p>

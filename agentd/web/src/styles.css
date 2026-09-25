@@ -822,6 +822,9 @@ body {
 .drawer-head h2 {
   margin: 0;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .center-muted {
   text-align: center;
@@ -1098,4 +1101,18 @@ body {
 .theme.on {
   border-color: color-mix(in srgb, var(--brand) 55%, transparent);
   background: var(--brand-soft);
+}
+
+/* ===== 定时任务面板 ===== */
+.job-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.job-actions .btn.danger {
+  color: var(--danger, #e5484d);
+  border-color: color-mix(in srgb, var(--danger, #e5484d) 45%, var(--border));
+}
+.job-actions .btn.danger:hover {
+  background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
 }

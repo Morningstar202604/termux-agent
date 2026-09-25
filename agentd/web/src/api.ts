@@ -50,9 +50,31 @@ export interface LlmSettings {
 export interface AppSettings {
   llm: LlmSettings;
   permission_mode: "auto" | "approve" | "chat";
-  server: { allow_lan?: boolean; token?: string; approval_timeout?: number };
+  server: {
+    allow_lan?: boolean;
+    token?: string;
+    approval_timeout?: number;
+    mcp?: Array<{ name: string; command: string; args: string[] }>;
+  };
   user_prefs?: string;
 }
+
+export interface Job {
+  id: string;
+  name: string;
+  trigger_type: "cron" | "interval" | "date";
+  expr: string;
+  message: string;
+  session_id: string;
+  condition: string;
+  enabled: boolean;
+  next_run?: string | null;
+}
+
+export const getJobs = () => api.get<{ jobs: Job[] }>("/api/jobs").then((d) => d.jobs);
+export const createJob = (body: Partial<Job>) => api.post<Job>("/api/jobs", body);
+export const updateJob = (id: string, enabled: boolean) => api.put<Job>(`/api/jobs/${id}`, { enabled });
+export const deleteJob = (id: string) => api.del<{ ok: boolean }>(`/api/jobs/${id}`);
 
 export interface ToolInfo {
   name: string;

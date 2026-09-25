@@ -23,7 +23,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .agent import Agent
 from .config import PRESETS, Settings, mask_key
+from .mcp import MCPClient
 from .memory import Store
+from .notify import notify
+from .tools import Tool, register
 
 VERSION = "0.1.0"
 APP_NAME = "口袋 Agent"
@@ -99,6 +102,7 @@ def create_app() -> FastAPI:
         return _emit
 
     async def run_agent(session_id: str, message: str):
+        notify("口袋 Agent", f"正在处理：{message[:40]}", persistent=True)
         try:
             # 新会话（尚无 user 消息）自动命名
             if store.first_user_message(session_id) is None:
@@ -113,17 +117,21 @@ def create_app() -> FastAPI:
                 emit = emit_now(session_id)
                 if emit:
                     await emit({"type": "approval", "id": tid, "name": name, "summary": summary, "risk": risk})
+                notify("口袋 Agent · 需要确认", f"{summary}（{'危险' if risk == 'danger' else '需要' if risk == 'write' else '只读'}操作），去应用里处理", persistent=True)
                 return await approval.ask(session_id, tid, name)
 
             await agent.chat(session_id, message, emit=emit_now(session_id), ask_approval=ask)
+            notify("口袋 Agent · 完成", f"已处理：{message[:30]}", persistent=False)
         except asyncio.CancelledError:
             q = runs.get(session_id, {}).get("queue")
             if q:
                 q.put_nowait({"type": "error", "message": "已停止"})
+            notify("口袋 Agent", "已停止")
         except Exception as e:  # noqa: BLE001 —— 服务端兜底，不能静默
             q = runs.get(session_id, {}).get("queue")
             if q:
                 q.put_nowait({"type": "error", "message": str(e)})
+            notify("口袋 Agent · 出错", str(e)[:80])
         finally:
             run = runs.get(session_id)
             pending = (run or {}).get("pending", [])
@@ -142,6 +150,72 @@ def create_app() -> FastAPI:
             run["task"].cancel()
             return True
         return False
+
+    # ---------- P1：定时/条件触发 ----------
+    from .scheduler import TRIGGER_TYPES, JobStore, SchedulerService, parse_condition
+
+    jobs_store = JobStore(settings_mgr.path.parent / "jobs.db")
+    mcp_clients: list[MCPClient] = []
+
+    async def scheduled_run(session_id: str, message: str):
+        """定时任务触发：指定会话不存在时自动新建；执行结果写入该会话，可在前端回看。"""
+        if not session_id or store.get_session(session_id) is None:
+            session_id = store.create_session()
+        runs.setdefault(session_id, {"task": None, "queue": asyncio.Queue(), "pending": []})
+        await run_agent(session_id, message)
+
+    scheduler_svc = SchedulerService(jobs_store, run_cb=scheduled_run, notify_cb=lambda t, c: notify(t, c, persistent=False))
+
+    @app.on_event("startup")
+    async def _start_scheduler():
+        scheduler_svc.start()
+        # P1：MCP 服务器可选接入（mock 模式不连，保持演示环境纯净）
+        if not MOCK:
+            mcp_configs = settings_mgr.get().get("server", {}).get("mcp", []) or []
+            for cfg in mcp_configs:
+                if not isinstance(cfg, dict) or not cfg.get("command"):
+                    continue
+                client = MCPClient(
+                    str(cfg.get("name", "mcp")).strip() or "mcp",
+                    str(cfg["command"]),
+                    [str(a) for a in cfg.get("args", []) or []],
+                )
+                try:
+                    tools = await client.connect()
+                except Exception as e:  # noqa: BLE001 —— 连接失败不阻塞启动
+                    await client.close()
+                    continue
+                for t in tools:
+                    tname = str(t.get("name", ""))
+                    if not tname:
+                        continue
+                    full = f"mcp__{client.name}__{tname}"
+
+                    async def _handler(c=client, tn=tname, **args):
+                        return await c.call_tool(tn, args)
+
+                    register(
+                        Tool(
+                            name=full,
+                            description=f"[MCP:{client.name}] {(t.get('description') or tname)[:160]}",
+                            parameters=t.get("inputSchema") or {"type": "object", "properties": {}},
+                            risk="write",  # 第三方工具默认需审批
+                            handler=_handler,
+                            summary=f"MCP {client.name} · {tname}",
+                            timeout=60,
+                        )
+                    )
+                client.tools = [str(t.get("name", "")) for t in tools if t.get("name")]
+                mcp_clients.append(client)
+
+    @app.on_event("shutdown")
+    async def _stop_scheduler():
+        scheduler_svc.shutdown()
+        for c in mcp_clients:
+            try:
+                await c.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _heartbeat(queue: asyncio.Queue) -> None:
         """SSE 保活：每 15s 发一条注释帧（前端会自动忽略）。"""
@@ -302,6 +376,59 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "会话不存在")
         return store.get_messages(sid)
 
+    # ---------- P1：定时任务 API ----------
+    @app.get("/api/jobs", dependencies=[Depends(check_token)])
+    async def jobs_list():
+        return {"jobs": scheduler_svc.list()}
+
+    @app.post("/api/jobs", dependencies=[Depends(check_token)])
+    async def jobs_create(payload: dict):
+        name = str(payload.get("name", "")).strip()[:60]
+        tt = str(payload.get("trigger_type", "")).strip()
+        expr = str(payload.get("expr", "")).strip()
+        message = str(payload.get("message", "")).strip()
+        if not (name and tt in TRIGGER_TYPES and expr and message):
+            raise HTTPException(400, "缺少必要字段：name / trigger_type(cron|interval|date) / expr / message")
+        if tt == "interval":
+            try:
+                int(float(expr))
+            except ValueError:
+                raise HTTPException(400, "interval 表达式需为秒数（如 3600）")
+        if tt == "date":
+            try:
+                __import__("datetime").datetime.strptime(expr, "%Y-%m-%d %H:%M")
+            except ValueError:
+                raise HTTPException(400, "date 表达式格式：YYYY-MM-DD HH:MM")
+        cond = str(payload.get("condition", "")).strip()
+        if cond and parse_condition(cond) is None:
+            raise HTTPException(400, "条件格式：battery < 20（仅支持电池电量阈值）")
+        job = scheduler_svc.create(
+            {
+                "name": name,
+                "trigger_type": tt,
+                "expr": expr,
+                "message": message,
+                "session_id": str(payload.get("session_id", "")).strip(),
+                "condition": cond,
+                "enabled": bool(payload.get("enabled", True)),
+            }
+        )
+        return job
+
+    @app.put("/api/jobs/{jid}", dependencies=[Depends(check_token)])
+    async def jobs_update(jid: str, payload: dict):
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(400, "只需传 enabled: true/false")
+        job = scheduler_svc.update(jid, {"enabled": enabled})
+        if job is None:
+            raise HTTPException(404, "任务不存在")
+        return job
+
+    @app.delete("/api/jobs/{jid}", dependencies=[Depends(check_token)])
+    async def jobs_delete(jid: str):
+        return {"ok": scheduler_svc.delete(jid)}
+
     @app.get("/api/providers")
     async def providers():
         return {"providers": PRESETS}
@@ -322,6 +449,20 @@ def create_app() -> FastAPI:
                 for t in all_tools()
             ],
             "count": len(all_tools()),
+        }
+
+    @app.get("/api/mcp", dependencies=[Depends(check_token)])
+    async def mcp_status():
+        cfg = settings_mgr.get().get("server", {}).get("mcp", []) or []
+        return {
+            "configured": cfg,
+            "connected": [
+                {
+                    "name": c.name,
+                    "tools": [t.name for t in c.tools] if hasattr(c, "tools") else [],
+                }
+                for c in mcp_clients
+            ],
         }
 
     @app.get("/api/settings", dependencies=[Depends(check_token)])
@@ -357,6 +498,20 @@ def create_app() -> FastAPI:
             at = server.get("approval_timeout")
             if isinstance(at, (int, float)) and at > 0:
                 settings_mgr.save({"server": {"approval_timeout": min(int(at), 600)}})
+            mcp = server.get("mcp")
+            if isinstance(mcp, list):
+                clean = []
+                for c in mcp:
+                    if not isinstance(c, dict) or not str(c.get("command", "")).strip():
+                        continue
+                    clean.append(
+                        {
+                            "name": str(c.get("name", "")).strip()[:40] or "mcp",
+                            "command": str(c["command"]).strip()[:200],
+                            "args": [str(a)[:200] for a in c.get("args", []) or []][:10],
+                        }
+                    )
+                settings_mgr.save({"server": {"mcp": clean}})
         prefs = payload.get("user_prefs")
         if isinstance(prefs, str):
             settings_mgr.save({"user_prefs": prefs.strip()[:4000]})

@@ -184,7 +184,7 @@ export function SettingsPanel({
             <input
               value={form.llm.model}
               onChange={(e) => setForm((f) => (f ? { ...f, llm: { ...f.llm, model: e.target.value } } : f))}
-              placeholder="例如 deepseek-chat"
+              placeholder="例如 deepseek-flash"
             />
           </div>
           <div className="field">

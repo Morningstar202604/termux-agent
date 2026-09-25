@@ -45,9 +45,13 @@ const STATUS_LABEL: Record<ToolPart["status"], string> = {
 function ToolCard({
   tool,
   onApproval,
+  onUndo,
+  undoing,
 }: {
   tool: ToolPart;
   onApproval: (id: string, d: "allow_once" | "allow_always" | "deny") => void;
+  onUndo?: (id: string) => void;
+  undoing?: boolean;
 }) {
   const [open, setOpen] = useState(tool.status === "waiting");
   const inputText =
@@ -83,6 +87,14 @@ function ToolCard({
           {!waiting && tool.result && (
             <pre className="tool-result">{JSON.stringify(tool.result, null, 2)}</pre>
           )}
+          {!waiting && tool.undoable && onUndo && (
+            <div className="undo-bar">
+              <button className="btn undo" disabled={undoing} onClick={() => onUndo(tool.id)}>
+                {undoing ? "正在撤销…" : "撤销此操作"}
+              </button>
+              <span className="undo-note">执行前已自动备份，可安全还原</span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -95,10 +107,14 @@ export function MessageItem({
   msg,
   parts,
   onApproval,
+  onUndo,
+  undoingId,
 }: {
   msg: Msg;
   parts: Part[];
   onApproval: (id: string, d: "allow_once" | "allow_always" | "deny") => void;
+  onUndo?: (id: string) => void;
+  undoingId?: string | null;
 }) {
   if (msg.role === "user") {
     const text = parts
@@ -128,7 +144,13 @@ export function MessageItem({
         p.type === "thinking" ? (
           <ThinkingBlock key={i} text={p.text} streaming={!msg.done} forceOpen={waitingApproval} />
         ) : p.type === "tool" ? (
-          <ToolCard key={p.tool.id} tool={p.tool} onApproval={onApproval} />
+          <ToolCard
+            key={p.tool.id}
+            tool={p.tool}
+            onApproval={onApproval}
+            onUndo={onUndo}
+            undoing={undoingId === p.tool.id}
+          />
         ) : p.text.trim() ? (
           <div className="bubble agent" key={i}>
             <Markdown text={p.text} />

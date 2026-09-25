@@ -893,6 +893,23 @@ body {
   color: var(--err);
   background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
+.s-ops {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+.s-rename {
+  font-style: normal;
+  font-size: 14px;
+  color: var(--text-3);
+}
+.s-rename:hover {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+.s-title:hover {
+  color: var(--brand);
+}
 .s-empty {
   text-align: center;
   color: var(--text-3);
@@ -1048,6 +1065,61 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tool-group {
+  margin-bottom: 12px;
+}
+.tool-group:last-child {
+  margin-bottom: 0;
+}
+.tool-group-name {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.group-head .group-title {
+  margin: 0;
+}
+.btn.mini {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+/* ===== 撤销条 ===== */
+.undo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.btn.undo {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  color: var(--err);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.btn.undo:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.btn.undo:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.undo-note {
+  font-size: 11px;
+  color: var(--text-3);
 }
 
 /* ===== 设置分组 ===== */

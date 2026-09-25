@@ -82,6 +82,7 @@ export interface ToolInfo {
   risk: "safe" | "write" | "danger";
   summary: string;
   timeout: number;
+  group: string;
 }
 
 export type ChatEvent =
@@ -96,10 +97,25 @@ export type ChatEvent =
       name: string;
       status: "completed" | "failed" | "denied";
       result: Record<string, unknown>;
+      undoable?: boolean;
     }
   | { type: "queued"; message: string }
   | { type: "done"; stop_reason: string }
   | { type: "error"; message: string };
+
+/** 撤销一次文件类危险操作（写文件/删文件前已自动备份）。 */
+export const undoToolCall = (sessionId: string, toolCallId: string) =>
+  api.post<{ ok?: boolean; restored?: string; error?: string }>("/api/undo", {
+    session_id: sessionId,
+    tool_call_id: toolCallId,
+  });
+
+/** 会话重命名。 */
+export const renameSession = (sessionId: string, title: string) =>
+  api.put<{ ok: boolean; title: string }>(`/api/sessions/${sessionId}`, { title });
+
+/** 导出全部数据（会话/消息/配置）为 JSON 下载。 */
+export const exportAll = () => api.get<Record<string, unknown>>("/api/export");
 
 async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {

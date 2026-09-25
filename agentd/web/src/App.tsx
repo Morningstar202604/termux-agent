@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type ChatEvent, type Session, type StoredMessage } from "./api";
+import { api, exportAll, renameSession, undoToolCall, type ChatEvent, type Session, type StoredMessage } from "./api";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
 import { IconGear, IconSessions, IconTimer } from "./components/icons";
@@ -48,7 +48,7 @@ function applyEvent(msg: Msg, ev: ChatEvent): Msg {
         ...msg,
         parts: msg.parts.map((p) =>
           p.type === "tool" && p.tool.id === ev.id
-            ? { ...p, tool: { ...p.tool, status: ev.status, result: ev.result } }
+            ? { ...p, tool: { ...p.tool, status: ev.status, result: ev.result, undoable: ev.undoable } }
             : p
         ),
       };
@@ -286,6 +286,57 @@ export default function App() {
     }
   };
 
+  // 撤销一次文件类危险操作（执行前已自动备份）
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  const onUndo = async (toolCallId: string) => {
+    if (!sessionId) return;
+    setUndoingId(toolCallId);
+    try {
+      const r = await undoToolCall(sessionId, toolCallId);
+      if (r.ok && r.restored) {
+        setMessages((prev) =>
+          prev.map((m) => ({
+            ...m,
+            parts: m.parts.map((p) =>
+              p.type === "tool" && p.tool.id === toolCallId
+                ? { ...p, tool: { ...p.tool, undoable: false, result: { ...p.tool.result, "已撤销": r.restored } } }
+                : p
+            ),
+          }))
+        );
+        setError("");
+        window.alert("已还原：" + r.restored);
+      } else {
+        setError(r.error || "撤销失败");
+      }
+    } catch (e) {
+      setError((e as Error).message || "撤销失败");
+    } finally {
+      setUndoingId(null);
+    }
+  };
+
+  const onExport = async () => {
+    try {
+      const data = await exportAll();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pocket-agent-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError((e as Error).message || "导出失败");
+    }
+  };
+
+  const onRenameSession = async (sid: string, title: string) => {
+    if (!title.trim()) return;
+    await renameSession(sid, title.trim()).catch(() => {});
+    void refreshSessions();
+  };
+
   const partsFor = (m: Msg): Part[] => m.parts;
 
   return (
@@ -318,7 +369,14 @@ export default function App() {
         ) : (
           <div className="msgs">
             {messages.map((m) => (
-              <MessageItem key={m.id} msg={m} parts={partsFor(m)} onApproval={onApproval} />
+              <MessageItem
+                key={m.id}
+                msg={m}
+                parts={partsFor(m)}
+                onApproval={onApproval}
+                onUndo={onUndo}
+                undoingId={undoingId}
+              />
             ))}
           </div>
         )}
@@ -337,6 +395,7 @@ export default function App() {
           }}
           onNew={onNewSession}
           onDelete={onDeleteSession}
+          onRename={onRenameSession}
         />
       )}
       {showSettings && (
@@ -348,6 +407,7 @@ export default function App() {
             setTheme(t);
             setThemePref(t);
           }}
+          onExport={() => void onExport()}
         />
       )}
       {showTimers && <TimerPanel onClose={() => setShowTimers(false)} />}

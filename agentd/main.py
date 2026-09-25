@@ -203,6 +203,7 @@ def create_app() -> FastAPI:
                             handler=_handler,
                             summary=f"MCP {client.name} · {tname}",
                             timeout=60,
+                            group="mcp",
                         )
                     )
                 client.tools = [str(t.get("name", "")) for t in tools if t.get("name")]
@@ -345,6 +346,31 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "该审批已过期或不存在")
         return {"ok": True}
 
+    @app.post("/api/undo", dependencies=[Depends(check_token)])
+    async def undo_endpoint(payload: dict):
+        """撤销一次已完成的文件类操作（写文件/删文件前已自动备份）。"""
+        session_id = payload.get("session_id", "")
+        tool_call_id = payload.get("tool_call_id", "")
+        if not (session_id and tool_call_id):
+            raise HTTPException(400, "需要 session_id 与 tool_call_id")
+        from .checkpoints import CheckpointStore, undo
+
+        cs = CheckpointStore(settings_mgr.path.parent / "checkpoints.db")
+        try:
+            return undo(cs, session_id, tool_call_id)
+        finally:
+            cs.close()
+
+    @app.put("/api/sessions/{sid}", dependencies=[Depends(check_token)])
+    async def rename_session(sid: str, payload: dict):
+        title = str(payload.get("title", "")).strip()[:60]
+        if not title:
+            raise HTTPException(400, "标题不能为空")
+        if store is None or store.get_session(sid) is None:
+            raise HTTPException(404, "会话不存在")
+        store.touch_session(sid, title)
+        return {"ok": True, "title": title}
+
     @app.get("/api/sessions", dependencies=[Depends(check_token)])
     async def list_sessions():
         if store is None:
@@ -366,6 +392,11 @@ def create_app() -> FastAPI:
         ok = store.delete_session(sid)
         if ok:
             approval.forget(sid)  # 清理该会话的"始终允许"记忆与未决审批
+            from .checkpoints import CheckpointStore
+
+            cs = CheckpointStore(settings_mgr.path.parent / "checkpoints.db")
+            cs.delete_session(sid)
+            cs.close()
         return {"ok": ok}
 
     @app.get("/api/sessions/{sid}/messages", dependencies=[Depends(check_token)])
@@ -445,6 +476,7 @@ def create_app() -> FastAPI:
                     "risk": t.risk,
                     "summary": t.summary,
                     "timeout": t.timeout,
+                    "group": t.group,
                 }
                 for t in all_tools()
             ],
@@ -464,6 +496,31 @@ def create_app() -> FastAPI:
                 for c in mcp_clients
             ],
         }
+
+    @app.get("/api/export", dependencies=[Depends(check_token)])
+    async def export_all():
+        """导出全部数据（会话 + 消息 + 脱敏配置）为 JSON，用于备份迁移。"""
+        import datetime
+
+        out: dict = {
+            "app": "口袋 Agent",
+            "version": "0.1.0",
+            "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "settings": {
+                "permission_mode": settings_mgr.get().get("permission_mode", "approve"),
+                "llm": {k: v for k, v in settings_mgr.get().get("llm", {}).items() if k != "api_key"},
+                "user_prefs": settings_mgr.get().get("user_prefs", ""),
+            },
+            "sessions": [],
+        }
+        if store is not None:
+            for s in store.list_sessions(limit=500):
+                msgs = [
+                    {"role": m["role"], "content": m["content"], "meta": m.get("meta")}
+                    for m in store.get_messages(s["id"], limit=1000)
+                ]
+                out["sessions"].append({"id": s["id"], "title": s["title"], "message_count": len(msgs), "messages": msgs})
+        return out
 
     @app.get("/api/settings", dependencies=[Depends(check_token)])
     async def get_settings():

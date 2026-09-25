@@ -8,6 +8,7 @@ export interface ToolPart {
   result?: Record<string, unknown>;
   summary?: string;
   risk?: string;
+  undoable?: boolean; // 文件类危险操作已自动备份，可一键撤销
 }
 
 export type Part =

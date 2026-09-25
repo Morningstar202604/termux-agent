@@ -86,9 +86,20 @@ async def write_file(path: str, content: str) -> dict:
     if len(data.encode("utf-8", errors="replace")) > 1_000_000:
         return {"error": "内容过大（>1MB），请分段写入"}
     try:
+        # 覆盖已有文件前自动备份，支持前端一键撤销
+        _ckpt = None
+        if p.exists() and p.is_file():
+            from ..checkpoints import backup_file
+
+            bak = backup_file(p)
+            if bak:
+                _ckpt = {"path": str(p), "backup": bak, "kind": "overwrite"}
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(data, encoding="utf-8")
-        return {"ok": True, "path": str(p), "bytes": len(data)}
+        out = {"ok": True, "path": str(p), "bytes": len(data)}
+        if _ckpt:
+            out["_ckpt"] = _ckpt
+        return out
     except OSError as e:
         return {"error": f"写入失败：{e}"}
 
@@ -101,11 +112,22 @@ async def delete_file(path: str) -> dict:
     if not p.exists():
         return {"error": f"不存在：{p}"}
     try:
+        # 删除文件前自动备份，支持一键撤销
+        _ckpt = None
+        if p.is_file():
+            from ..checkpoints import backup_file
+
+            bak = backup_file(p)
+            if bak:
+                _ckpt = {"path": str(p), "backup": bak, "kind": "restore"}
         if p.is_dir():
             p.rmdir()
         else:
             p.unlink()
-        return {"ok": True, "deleted": str(p)}
+        out = {"ok": True, "deleted": str(p)}
+        if _ckpt:
+            out["_ckpt"] = _ckpt
+        return out
     except OSError as e:
         return {"error": f"删除失败：{e}"}
 
@@ -120,6 +142,7 @@ register(Tool(
     risk="safe",
     handler=list_dir,
     summary="查看目录内容",
+    group="files",
 ))
 
 register(Tool(
@@ -133,6 +156,7 @@ register(Tool(
     risk="safe",
     handler=read_file,
     summary="读取文件",
+    group="files",
 ))
 
 register(Tool(
@@ -149,6 +173,7 @@ register(Tool(
     risk="write",
     handler=write_file,
     summary="写入文件",
+    group="files",
 ))
 
 register(Tool(
@@ -162,4 +187,5 @@ register(Tool(
     risk="danger",
     handler=delete_file,
     summary="删除文件（不可恢复）",
+    group="files",
 ))

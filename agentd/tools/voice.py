@@ -132,6 +132,7 @@ def register_voice_tool() -> None:
             risk="safe",
             handler=_tts_offline,
             summary="本地离线语音朗读",
+            group="voice",
             timeout=60,
         )
     )

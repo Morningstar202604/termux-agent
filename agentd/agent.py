@@ -249,8 +249,21 @@ class Agent:
                     await emit({"type": "tool_update", "id": tid, "name": name, "status": "denied", "result": result})
                 else:
                     result = await call_tool(name, args)
+                    # 危险文件操作自动备份：剥离 _ckpt、落库、前端显示可撤销
+                    ck = result.pop("_ckpt", None)
+                    undoable = False
+                    if ck and ck.get("backup"):
+                        try:
+                            from .checkpoints import CheckpointStore
+
+                            cs = CheckpointStore(self.store.path.parent / "checkpoints.db")
+                            cs.record(session_id, tid, name, ck["path"], ck["backup"], ck.get("kind", "restore"))
+                            cs.close()
+                            undoable = True
+                        except Exception:  # noqa: BLE001
+                            pass
                     status = "completed" if "error" not in result else "failed"
-                    await emit({"type": "tool_update", "id": tid, "name": name, "status": status, "result": result})
+                    await emit({"type": "tool_update", "id": tid, "name": name, "status": status, "result": result, "undoable": undoable})
 
                 text = json.dumps(result, ensure_ascii=False)
                 messages.append({"role": "tool", "tool_call_id": tid, "content": text[:MAX_TOOL_TEXT]})

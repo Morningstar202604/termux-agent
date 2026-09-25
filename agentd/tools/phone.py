@@ -94,7 +94,10 @@ async def battery() -> dict:
     try:
         code, out, err = await _run([b])
         data = json.loads(out) if out else {}
-    except (asyncio.TimeoutError, json.JSONDecodeError):
+        # termux-battery-status 真实输出是 JSON 数组，取第一项
+        if isinstance(data, list):
+            data = data[0] if data else {}
+    except (asyncio.TimeoutError, json.JSONDecodeError, IndexError, TypeError):
         return _fail("读取电量失败")
     return _ok(
         status=data.get("status"),
@@ -485,6 +488,7 @@ def _t(name: str, description: str, properties: dict, risk: str, handler, summar
         handler=handler,
         summary=summary,
         timeout=timeout,
+        group="phone",
     ))
 
 

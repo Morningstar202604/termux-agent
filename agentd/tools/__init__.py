@@ -22,6 +22,7 @@ class Tool:
     handler: Handler
     summary: str = ""          # 审批卡片上展示的一句话说明
     timeout: int = 120         # 单次执行超时（秒）
+    group: str = "other"       # 工具分组：phone/files/system/voice/mcp
 
 
 _REGISTRY: dict[str, Tool] = {}

@@ -15,6 +15,16 @@ const RISK_LABEL: Record<string, string> = {
   danger: "危险",
 };
 
+/** 工具分组展示顺序与名称 */
+const GROUP_NAMES: Array<{ id: string; label: string }> = [
+  { id: "phone", label: "手机能力" },
+  { id: "files", label: "文件" },
+  { id: "system", label: "系统" },
+  { id: "voice", label: "语音" },
+  { id: "mcp", label: "MCP 扩展" },
+  { id: "other", label: "其他" },
+];
+
 const THEMES: Array<{ v: ThemePref; label: string; swatch: ReactNode }> = [
   {
     v: "dark",
@@ -63,11 +73,13 @@ export function SettingsPanel({
   mock,
   theme,
   onTheme,
+  onExport,
 }: {
   onClose: () => void;
   mock: boolean;
   theme: ThemePref;
   onTheme: (t: ThemePref) => void;
+  onExport: () => void;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [form, setForm] = useState<AppSettings | null>(null);
@@ -309,20 +321,45 @@ export function SettingsPanel({
           </div>
         </div>
 
-        {/* 手机能力 */}
+        {/* 工具能力（按分组展示） */}
         <div className="group">
-          <p className="group-title">手机能力（{tools.length} 项）</p>
+          <div className="group-head">
+            <p className="group-title">工具能力（{tools.length} 项）</p>
+            <button className="btn mini" onClick={onExport} title="把所有会话与配置导出为 JSON 文件">
+              导出数据备份
+            </button>
+          </div>
           <div className="field">
-            <ul className="tools-list">
-              {tools.map((t) => (
-                <li key={t.name} className={`tool-item ${t.risk}`}>
-                  <code>{t.name}</code>
-                  <span className="tool-risk">{RISK_LABEL[t.risk] ?? t.risk}</span>
-                  <p>{t.summary}</p>
-                </li>
-              ))}
-            </ul>
-            <p className="hint">需要 termux-api 的支持：pkg install termux-api</p>
+            {GROUP_NAMES.map((g) => {
+              const items = tools.filter((t) => (t.group || "other") === g.id);
+              if (items.length === 0) return null;
+              return (
+                <div key={g.id} className="tool-group">
+                  <p className="tool-group-name">{g.label}（{items.length}）</p>
+                  <ul className="tools-list">
+                    {items.map((t) => (
+                      <li key={t.name} className={`tool-item ${t.risk}`}>
+                        <code>{t.name}</code>
+                        <span className="tool-risk">{RISK_LABEL[t.risk] ?? t.risk}</span>
+                        <p>{t.summary}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+            <p className="hint">「手机能力」依赖 termux-api：pkg install termux-api。「系统」为 shell 命令（危险）。文件操作（写/删）执行前自动备份，可在对话里一键撤销。</p>
+          </div>
+        </div>
+
+        {/* 数据备份 */}
+        <div className="group">
+          <p className="group-title">数据备份</p>
+          <div className="field">
+            <p className="hint">
+              一键把全部会话与设置导出为 JSON 文件（不含 API 密钥）。之后在设置里可以凭文件恢复；文件保存在你下载的位置。
+            </p>
+            <button className="btn" onClick={onExport}>导出全部数据</button>
           </div>
         </div>
 

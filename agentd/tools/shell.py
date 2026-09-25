@@ -73,6 +73,7 @@ register(
         risk="danger",
         handler=run_shell,
         summary="执行 shell 命令（可运行任意命令，请确认是你想要的）",
+        group="system",
         timeout=300,
     )
 )

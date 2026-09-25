@@ -128,6 +128,17 @@ termux-api 未安装时返回结构化错误，由模型转告用户执行 `pkg 
   替换全部文字符号与内联路径；
 - **设置面板分组**：外观（主题三卡选择）/ 模型 / 权限与安全 / 手机能力。
 
+## M4 PWA / APK（安装形态）
+
+- **Service Worker 离线壳**（`web/public/sw.js`）：install 时预缓存 app shell 并动态提取
+  `/assets/*` 与 `/icons/*`，离线秒开完整 UI；`/api/*` 一律网络直连不缓存；
+  页面导航离线回退 index.html，资源请求失败给 504（绝不拿 HTML 冒充 JS）。
+- **PWA 安装**（推荐，零构建）：手机浏览器打开 `http://127.0.0.1:8787` →
+  「添加到主屏幕」，独立全屏运行，与 APK 体验一致。
+- **WebView 壳 APK**（可选，`termux/apk-shell/`）：30 行 Java 原生 WebView 壳工程
+  （零第三方依赖，不引 Capacitor），启动即加载本机服务；网络配置仅放行
+  127.0.0.1/localhost 明文。构建步骤见 `termux/make-apk.md`。
+
 ## 前端开发
 
 ```bash

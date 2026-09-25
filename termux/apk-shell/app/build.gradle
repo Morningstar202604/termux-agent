@@ -1,0 +1,32 @@
+// app 模块
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.pocket.agent'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.pocket.agent"
+        minSdk 26          // Android 8.0+，覆盖绝大多数在用设备
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    // 零第三方依赖：原生 WebView 即可，不引 Capacitor/WebView 增强库
+}

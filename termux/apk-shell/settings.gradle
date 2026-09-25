@@ -1,0 +1,24 @@
+// 口袋 Agent WebView 壳 · 工程构建配置
+// 用 Android Studio 打开本目录即可构建（无需额外配置）
+
+pluginManagement {
+    repositories {
+        // 国内镜像优先（阿里云），国外仓库兜底
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        google()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "PocketAgent"
+include ':app'

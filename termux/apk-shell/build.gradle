@@ -1,0 +1,4 @@
+// 口袋 Agent WebView 壳 · 根构建文件
+plugins {
+    id 'com.android.application' version '8.2.2' apply false
+}

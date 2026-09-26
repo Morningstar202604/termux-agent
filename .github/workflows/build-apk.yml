@@ -46,10 +46,17 @@ jobs:
           path: app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
-      - name: Create Release
+      - name: Publish rolling release
+        # 仓库没有 tag，softprops/action-gh-release 在 push 事件下必须显式指定 tag_name，
+        # 否则报 "GitHub Releases requires a tag"。这里用固定 tag 维护一个「最新构建」发布页。
         if: ${{ github.event_name == 'push' }}
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: latest
+          name: Latest build
+          body: "由 build-apk 工作流自动发布的滚动构建（debug keystore 签名）。"
           files: app/build/app/outputs/flutter-apk/app-release.apk
           draft: false
-          generate_release_notes: true
+          prerelease: true
+          overwrite_files: true
+          generate_release_notes: false

@@ -7,6 +7,7 @@ class AcpError extends Error {
   final String message;
   AcpError(this.message);
 }
+
 class AcpClient {
   WebSocketChannel? _channel;
   int _id = 0;
@@ -18,11 +19,12 @@ class AcpClient {
   final StreamController<_ToolEvent> _tools = StreamController<_ToolEvent>.broadcast();
   final StreamController<String> _status = StreamController<String>.broadcast();
 
+  String _sid = '';
+
   String get sessionId {
     if (_channel == null) return '';
     return _sid;
   }
-  String _sid = '';
 
   Stream<String> get text => _text.stream;
   Stream<_ToolEvent> get tools => _tools.stream;
@@ -70,45 +72,31 @@ class AcpClient {
       final params = msg['params'] as Map<String, dynamic>? ?? {};
       final update = params['update'] as Map<String, dynamic>?;
       if (update == null) return;
-      final uType = update['sessionUpdate'] as String?;
-      if (uType == 'agent_message_chunk') {
-        final content = (update['content'] as Map<String, dynamic>?)?.['text'];
-        if (content is String) _text.add(content);
-      } else if (uType == 'tool_call' || uType == 'tool_call_update') {
-        _tools.add(_ToolEvent(
-          type: uType,
-          toolCallId: (update['toolCallId'] as String?) ?? '',
-          title: (update['title'] as String?) ??
-              (update['toolCall'] as Map<String, dynamic>?)?['title'] as String? ??
-              'tool',
-          raw: update,
-        ));
-      }
-      } else if (method == 'session_update') {
-        final params = msg['params'] as Map<String, dynamic>? ?? {};
-        final update = params['update'] as Map<String, dynamic>?;
-        if (update != null) {
-          _dispatchUpdate(update);
-        }
-      } else if (method == 'session/update') {
-        final params = msg['params'] as Map<String, dynamic>? ?? {};
-        final update = params['update'] as Map<String, dynamic>?;
-        if (update == null) return;
+      _dispatchUpdate(update);
+    } else if (method == 'session_update') {
+      final params = msg['params'] as Map<String, dynamic>? ?? {};
+      final update = params['update'] as Map<String, dynamic>?;
+      if (update != null) {
         _dispatchUpdate(update);
-      } else if (method == 'session/request_permission' || method == 'requestPermission') {
-        _respondPermission(msg);
       }
+    } else if (method == 'session/update') {
+      final params = msg['params'] as Map<String, dynamic>? ?? {};
+      final update = params['update'] as Map<String, dynamic>?;
+      if (update == null) return;
+      _dispatchUpdate(update);
+    } else if (method == 'session/request_permission' || method == 'requestPermission') {
+      _respondPermission(msg);
     }
   }
 
   void _dispatchUpdate(Map<String, dynamic> update) {
     final uType = update['sessionUpdate'] as String?;
     if (uType == 'agent_message_chunk') {
-      final content = (update['content'] as Map<String, dynamic>?)?.['text'];
+      final content = (update['content'] as Map<String, dynamic>?)?['text'];
       if (content is String) _text.add(content);
     } else if (uType == 'tool_call' || uType == 'tool_call_update') {
       _tools.add(_ToolEvent(
-        type: uType,
+        type: uType ?? 'tool_call',
         toolCallId: (update['toolCallId'] as String?) ?? '',
         title: (update['title'] as String?) ??
             (update['toolCall'] as Map<String, dynamic>?)?['title'] as String? ??

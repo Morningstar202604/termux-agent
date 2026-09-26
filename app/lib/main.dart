@@ -216,7 +216,6 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: EdgeInsets.only(
         left: 12,
         right: 12,
-        bottom: 12,
         top: 8,
         bottom: MediaQuery.of(context).padding.bottom + 12,
       ),
@@ -238,7 +237,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                color: const Color(0xFF1F2230),
+                fillColor: const Color(0xFF1F2230),
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 14),
               ),
@@ -247,7 +246,8 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           const SizedBox(width: 8),
           IconButton.filled(
-            onPressed: _busy || _client?.sessionId.isEmpty ?? true ? null : _send,
+            onPressed:
+                _busy || (_client?.sessionId.isEmpty ?? true) ? null : _send,
             icon: const Icon(Icons.send),
           ),
         ],
@@ -299,7 +299,7 @@ class _Bubble extends StatelessWidget {
             data: text,
             styleSheet: MarkdownStyleSheet(
               p: const TextStyle(color: Colors.white, fontSize: 14),
-              inlineCode: const TextStyle(
+              code: const TextStyle(
                   color: Color(0xFF7FB0FF), fontFamily: 'monospace'),
             ),
           ),

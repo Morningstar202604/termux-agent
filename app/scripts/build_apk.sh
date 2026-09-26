@@ -70,9 +70,11 @@ if [ "$MODE" = "release" ]; then
       -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
       -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
   fi
-  # 临时把 release signingConfig 指向 debug keystore（仅本地 CI 用）
-  sed -i 's/signingConfigs.getByName("debug")/signingConfigs.create("releaseLocal")/' "$APP_DIR/android/app/build.gradle.kts" || true
-  cat >> "$APP_DIR/android/app/build.gradle.kts" <<EOF
+  # 追加本地签名配置（幂等：重复执行不会重复追加）
+  # 说明：只追加一次 android 块，release buildType 会被重新指向 releaseLocal；
+  # 不要再用 sed 改写原有 signingConfigs.getByName("debug")，否则同名配置会被创建两次。
+  if ! grep -q 'releaseLocal' "$APP_DIR/android/app/build.gradle.kts"; then
+    cat >> "$APP_DIR/android/app/build.gradle.kts" <<EOF
 
 android {
   signingConfigs {
@@ -90,6 +92,7 @@ android {
   }
 }
 EOF
+  fi
   flutter build apk --release
   echo ""
   echo "release APK 已生成: $APP_DIR/build/app/outputs/flutter-apk/app-release.apk"

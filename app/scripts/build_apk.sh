@@ -65,6 +65,7 @@ if [ "$MODE" = "release" ]; then
   KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
   if [ ! -f "$KEYSTORE" ]; then
     echo "==> 生成 debug keystore..."
+    mkdir -p "$(dirname "$KEYSTORE")"
     keytool -genkeypair -v -keystore "$KEYSTORE" -storepass android -keypass android \
       -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
       -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null

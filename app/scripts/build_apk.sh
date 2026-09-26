@@ -7,6 +7,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+APP_DIR="$(pwd)"
 MODE="${1:-debug}"
 
 # 1. 安装 Java (JDK 17)
@@ -16,7 +17,7 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 
 # 2. 安装 Android SDK cmdline-tools
-SDK_ROOT="${ANDROID_HOME:-$HOME/Android/sdk}"
+SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/sdk}}"
 if [ ! -d "$SDK_ROOT/platforms" ]; then
   echo "==> 安装 Android cmdline-tools..."
   CMDLINE="$SDK_ROOT/cmdline-tools"
@@ -28,7 +29,10 @@ if [ ! -d "$SDK_ROOT/platforms" ]; then
 fi
 
 export ANDROID_HOME="$SDK_ROOT"
-export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+export ANDROID_SDK_ROOT="$SDK_ROOT"
+if [ -d "$SDK_ROOT/cmdline-tools/latest/bin" ]; then
+  export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+fi
 
 # 接受许可并装组件（无人值守）
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
@@ -44,7 +48,7 @@ flutter config --no-analytics >/dev/null 2>&1 || true
 flutter precache --android >/dev/null 2>&1 || true
 
 # 4. 低内存 gradle 参数
-cat > /workspace/app/android/gradle.properties <<'EOF'
+cat > "$APP_DIR/android/gradle.properties" <<'EOF'
 org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=512m
 org.gradle.parallel=false
 org.gradle.caching=false
@@ -53,7 +57,7 @@ android.useAndroidX=true
 kotlin.daemon.jvmargs=-Xmx1g
 EOF
 
-cd /workspace/app
+cd "$APP_DIR"
 flutter pub get
 
 if [ "$MODE" = "release" ]; then
@@ -66,8 +70,8 @@ if [ "$MODE" = "release" ]; then
       -dname "CN=Android Debug,O=Android,C=US" 2>/dev/null
   fi
   # 临时把 release signingConfig 指向 debug keystore（仅本地 CI 用）
-  sed -i 's/signingConfigs.getByName("debug")/signingConfigs.create("releaseLocal")/' app/android/app/build.gradle.kts || true
-  cat >> app/android/app/build.gradle.kts <<EOF
+  sed -i 's/signingConfigs.getByName("debug")/signingConfigs.create("releaseLocal")/' "$APP_DIR/android/app/build.gradle.kts" || true
+  cat >> "$APP_DIR/android/app/build.gradle.kts" <<EOF
 
 android {
   signingConfigs {
@@ -87,14 +91,14 @@ android {
 EOF
   flutter build apk --release
   echo ""
-  echo "release APK 已生成: $(pwd)/build/app/outputs/flutter-apk/app-release.apk"
-  echo "安装到手机:  adb install $(pwd)/build/app/outputs/flutter-apk/app-release.apk"
+  echo "release APK 已生成: $APP_DIR/build/app/outputs/flutter-apk/app-release.apk"
+  echo "安装到手机:  adb install $APP_DIR/build/app/outputs/flutter-apk/app-release.apk"
   echo "注意：此 APK 用 debug keystore 签名，正式分发前请换自己的 keystore。"
 else
   flutter build apk --debug
   echo ""
-  echo "APK 已生成: $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
-  echo "安装到手机:  adb install $(pwd)/build/app/outputs/flutter-apk/app-debug.apk"
+  echo "APK 已生成: $APP_DIR/build/app/outputs/flutter-apk/app-debug.apk"
+  echo "安装到手机:  adb install $APP_DIR/build/app/outputs/flutter-apk/app-debug.apk"
 fi
 
 echo ""

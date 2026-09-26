@@ -8,6 +8,9 @@ on:
       - "app/**"
       - ".github/workflows/build-apk.yml"
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -49,6 +52,7 @@ jobs:
       - name: Publish rolling release
         # 仓库没有 tag，softprops/action-gh-release 在 push 事件下必须显式指定 tag_name，
         # 否则报 "GitHub Releases requires a tag"。这里用固定 tag 维护一个「最新构建」发布页。
+        # 另需顶层 permissions.contents: write，否则创建发布会被拒（403 Resource not accessible）。
         if: ${{ github.event_name == 'push' }}
         uses: softprops/action-gh-release@v3
         with:
